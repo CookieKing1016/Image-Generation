@@ -1,0 +1,11 @@
+{
+  "name": "red_scarf_dog",
+  "description": "A 4-turn case for testing intention drift around object attributes, scene replacement, pose preservation, and lighting.",
+  "turns": [
+    "Generate a dog sitting in a park.",
+    "Make the dog wear a red scarf.",
+    "Change the background to a snowy forest.",
+    "Add warm lighting, but keep the red scarf and dog pose."
+  ]
+}
+
