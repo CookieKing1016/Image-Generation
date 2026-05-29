@@ -1,2 +1,1 @@
-"""External tool clients for MemoryTalk2Image."""
-
+"""External tool clients for Mem2Image."""

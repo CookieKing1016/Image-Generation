@@ -8,7 +8,7 @@ from core.schema import extract_json_object, json_dumps, normalize_delta
 from tools.siliconflow_client import SiliconFlowClient, first_message_text
 
 
-SYSTEM_PROMPT = """You are the Intent Parser for MemoryTalk2Image.
+SYSTEM_PROMPT = """You are the Intent Parser for Mem2Image.
 Your job is to convert the current user instruction into a JSON delta for a
 structured visual memory. The system keeps old visual requirements by default,
 so only output changes explicitly requested in the current turn.
@@ -67,4 +67,3 @@ class IntentParser:
         )
         parsed = extract_json_object(first_message_text(response))
         return normalize_delta(parsed)
-

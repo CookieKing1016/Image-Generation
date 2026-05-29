@@ -78,7 +78,7 @@ class SiliconFlowClient:
 
     def download_file(self, url: str, destination: Path) -> None:
         destination.parent.mkdir(parents=True, exist_ok=True)
-        req = request.Request(url, headers={"User-Agent": "MemoryTalk2Image/0.1"})
+        req = request.Request(url, headers={"User-Agent": "Mem2Image/0.1"})
         try:
             with request.urlopen(req, timeout=self.settings.timeout_seconds) as response:
                 destination.write_bytes(response.read())
@@ -103,7 +103,7 @@ class SiliconFlowClient:
             headers={
                 "Authorization": f"Bearer {self.settings.api_key}",
                 "Content-Type": "application/json",
-                "User-Agent": "MemoryTalk2Image/0.1",
+                "User-Agent": "Mem2Image/0.1",
             },
         )
 

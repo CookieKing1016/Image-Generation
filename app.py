@@ -1,4 +1,4 @@
-"""Streamlit demo for MemoryTalk2Image first-stage pipeline."""
+"""Streamlit demo for Mem2Image first-stage pipeline."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import Any, Dict, List
 
 import streamlit as st
 
-from core.orchestrator import MemoryTalk2ImageOrchestrator, TurnResult
+from core.orchestrator import Mem2ImageOrchestrator, TurnResult
 from core.run_logger import make_run_id
 from core.schema import empty_memory
 from tools.config import Settings
@@ -19,13 +19,13 @@ EXAMPLE_PATH = ROOT / "data" / "examples" / "red_scarf_dog.json"
 
 
 def main() -> None:
-    st.set_page_config(page_title="MemoryTalk2Image", layout="wide")
+    st.set_page_config(page_title="Mem2Image", layout="wide")
     _init_state()
 
     settings = _settings_sidebar()
     example = _load_example()
 
-    st.title("MemoryTalk2Image")
+    st.title("Mem2Image")
     st.caption("First-stage multi-turn T2I regeneration with Visual Intent Memory.")
 
     left, right = st.columns([0.42, 0.58])
@@ -135,7 +135,7 @@ def _run_turn(settings: Settings, instruction: str) -> None:
 
     st.session_state.last_error = ""
     turn_index = len(st.session_state.results) + 1
-    orchestrator = MemoryTalk2ImageOrchestrator(settings=settings, run_id=st.session_state.run_id)
+    orchestrator = Mem2ImageOrchestrator(settings=settings, run_id=st.session_state.run_id)
 
     with st.spinner(f"Running turn {turn_index} with LLM, image generation, and VLM evaluation..."):
         try:

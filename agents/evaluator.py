@@ -9,7 +9,7 @@ from core.schema import extract_json_object, json_dumps
 from tools.siliconflow_client import SiliconFlowClient, first_message_text
 
 
-EVALUATOR_PROMPT = """You are the VLM Evaluator for MemoryTalk2Image.
+EVALUATOR_PROMPT = """You are the VLM Evaluator for Mem2Image.
 Inspect the provided image and answer each checklist item. Return strict JSON:
 {
   "items": [
@@ -124,4 +124,3 @@ def _float_or_zero(value: Any) -> float:
         return float(value)
     except (TypeError, ValueError):
         return 0.0
-

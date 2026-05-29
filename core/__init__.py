@@ -1,2 +1,1 @@
-"""Core orchestration primitives for MemoryTalk2Image."""
-
+"""Core orchestration primitives for Mem2Image."""

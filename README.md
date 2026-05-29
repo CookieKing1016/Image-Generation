@@ -1,4 +1,4 @@
-# MemoryTalk2Image
+# Mem2Image
 
 First-stage course prototype for a training-free, multi-turn text-to-image agent with explicit Visual Intent Memory.
 
@@ -27,14 +27,6 @@ If SiliconFlow returns `Model disabled`, replace the corresponding model in
 LLM_MODEL=Qwen/Qwen3-30B-A3B-Instruct-2507
 VLM_MODEL=Qwen/Qwen3-VL-32B-Instruct
 IMAGE_MODEL=Kwai-Kolors/Kolors
-```
-
-Good first fallbacks are:
-
-```bash
-LLM_MODEL=Qwen/Qwen2-7B-Instruct
-VLM_MODEL=Qwen/Qwen2-VL-72B-Instruct
-IMAGE_MODEL=stabilityai/stable-diffusion-xl-base-1.0
 ```
 
 ## Run

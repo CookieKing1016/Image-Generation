@@ -30,7 +30,7 @@ class TurnResult:
     run_dir: Path
 
 
-class MemoryTalk2ImageOrchestrator:
+class Mem2ImageOrchestrator:
     def __init__(self, settings: Settings, run_id: str = ""):
         self.client = SiliconFlowClient(settings)
         self.intent_parser = IntentParser(self.client)
@@ -114,3 +114,6 @@ class MemoryTalk2ImageOrchestrator:
             image_path=image_path,
             run_dir=self.logger.run_dir,
         )
+
+
+MemoryTalk2ImageOrchestrator = Mem2ImageOrchestrator
