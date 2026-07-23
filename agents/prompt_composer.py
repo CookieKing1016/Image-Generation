@@ -44,10 +44,13 @@ class PromptComposer:
             sections.append("Visual style: " + style + ".")
 
         if memory["constraints"]:
-            sections.append("Must preserve: " + "; ".join(memory["constraints"]) + ".")
+            sections.append("Hard preservation constraints: " + "; ".join(memory["constraints"]) + ".")
 
         if memory["current_turn_goal"]:
             sections.append("Current edit goal: " + memory["current_turn_goal"] + ".")
+
+        if memory["negative_constraints"]:
+            sections.append("Hard negative constraints: " + "; ".join(memory["negative_constraints"]) + ".")
 
         sections.append("Create a coherent, high-quality image with clear composition and visible requested details.")
         positive = " ".join(sections)
@@ -103,4 +106,3 @@ def _dedupe(items: List[str]) -> List[str]:
             result.append(text)
             known.add(text.lower())
     return result
-

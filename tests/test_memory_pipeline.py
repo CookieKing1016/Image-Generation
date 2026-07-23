@@ -90,8 +90,152 @@ class MemoryPipelineTest(unittest.TestCase):
         prompt = PromptComposer().compose(memory)
         self.assertIn("no extra animals", prompt.negative)
         self.assertIn("Avoid:", prompt.generation_prompt)
+        self.assertIn("Hard negative constraints", prompt.positive)
+
+    def test_replacement_updates_supersede_conflicting_attributes_and_constraints(self):
+        updater = MemoryUpdater()
+        memory = empty_memory()
+        memory = updater.update(
+            memory,
+            {
+                "add": {
+                    "main_subjects": [
+                        {"name": "clear glass vase", "attributes": ["transparent", "clear glass"]}
+                    ],
+                    "constraints": ["The vase must be clear glass with no visible seams."],
+                },
+                "current_turn_goal": "Generate a clear glass vase.",
+            },
+            "Generate a clear glass vase.",
+        )
+        memory = updater.update(
+            memory,
+            {
+                "update": {
+                    "main_subjects": [
+                        {"name": "clear glass vase", "attributes": ["white ceramic"]}
+                    ]
+                },
+                "current_turn_goal": "Change the vase material to white ceramic instead of glass.",
+            },
+            "Change the vase material to white ceramic instead of glass.",
+        )
+
+        vase = memory["main_subjects"][0]
+        self.assertEqual(vase["name"], "white ceramic vase")
+        self.assertIn("white ceramic", vase["attributes"])
+        self.assertNotIn("clear glass", " ".join(vase["attributes"]).lower())
+        self.assertNotIn("clear glass", " ".join(memory["constraints"]).lower())
+        self.assertIn("No transparent glass vase should be visible.", memory["negative_constraints"])
+
+    def test_scarf_color_replacement_drops_old_color_and_adds_negative(self):
+        updater = MemoryUpdater()
+        memory = empty_memory()
+        memory = updater.update(
+            memory,
+            {"add": {"main_subjects": [{"name": "fox", "attributes": ["wearing a red scarf"]}]}},
+            "Make the fox wear a red scarf.",
+        )
+        memory = updater.update(
+            memory,
+            {"update": {"main_subjects": [{"name": "fox", "attributes": ["wearing a blue scarf"]}]}},
+            "Change the scarf to a blue scarf, replacing the red scarf.",
+        )
+
+        attrs = memory["main_subjects"][0]["attributes"]
+        self.assertIn("wearing a blue scarf", attrs)
+        self.assertNotIn("wearing a red scarf", attrs)
+        self.assertIn("No red scarf should be visible.", memory["negative_constraints"])
+
+    def test_removed_object_cleans_related_constraints_and_becomes_negative(self):
+        updater = MemoryUpdater()
+        memory = empty_memory()
+        memory = updater.update(
+            memory,
+            {
+                "add": {
+                    "main_subjects": [{"name": "black leather wallet"}],
+                    "objects": [{"name": "credit card"}],
+                    "constraints": [
+                        "The credit card must be partially visible, extending from the wallet.",
+                        "The wallet must be centered.",
+                    ],
+                }
+            },
+            "Generate a wallet with a credit card.",
+        )
+        memory = updater.update(
+            memory,
+            {"remove": {"objects": [{"name": "credit card"}]}},
+            "Remove the credit card from the wallet.",
+        )
+
+        self.assertEqual(memory["objects"], [])
+        self.assertIn("The wallet must be centered.", memory["constraints"])
+        self.assertNotIn("credit card", " ".join(memory["constraints"]).lower())
+        self.assertIn("No credit card should be visible.", memory["negative_constraints"])
+        self.assertIn("No card-like rectangle should protrude from the wallet.", memory["negative_constraints"])
+        self.assertIn("clean closed edges", " ".join(memory["constraints"]).lower())
+
+    def test_no_readable_text_removes_visible_writing_constraint(self):
+        updater = MemoryUpdater()
+        memory = empty_memory()
+        memory = updater.update(
+            memory,
+            {
+                "add": {
+                    "objects": [{"name": "classroom blackboard", "attributes": ["large", "with chalk writing"]}],
+                    "constraints": ["The blackboard should show visible chalk writing."],
+                }
+            },
+            "Generate a classroom blackboard.",
+        )
+        memory = updater.update(
+            memory,
+            {
+                "add": {"negative_constraints": ["No readable text on the blackboard"]},
+                "current_turn_goal": "Do not include readable text on the blackboard.",
+            },
+            "Do not include readable text on the blackboard.",
+        )
+
+        constraints = " ".join(memory["constraints"]).lower()
+        attrs = " ".join(memory["objects"][0]["attributes"]).lower()
+        self.assertNotIn("chalk writing", attrs)
+        self.assertNotIn("visible chalk writing", constraints)
+        self.assertIn("non-readable chalk smudges", constraints)
+        self.assertIn("No readable text on the blackboard.", memory["negative_constraints"])
+
+    def test_same_name_counted_objects_keep_distinct_instances(self):
+        updater = MemoryUpdater()
+        memory = empty_memory()
+        memory = updater.update(
+            memory,
+            {
+                "add": {
+                    "objects": [
+                        {"name": "flower", "attributes": ["petal", "stem"], "position": "left"},
+                        {"name": "flower", "attributes": ["petal", "stem"], "position": "center"},
+                        {"name": "flower", "attributes": ["petal", "stem"], "position": "right"},
+                    ],
+                    "constraints": ["There must be exactly three flowers in the vase."],
+                }
+            },
+            "Generate exactly three flowers.",
+        )
+        self.assertEqual(len(memory["objects"]), 3)
+
+        memory = updater.update(
+            memory,
+            {"update": {"objects": [{"name": "flower", "attributes": ["purple petal"]}]}},
+            "Make the flowers purple.",
+        )
+        self.assertEqual(len(memory["objects"]), 3)
+        for flower in memory["objects"]:
+            self.assertIn("purple petal", flower["attributes"])
+        self.assertIn("Show exactly three fully bloomed flowers inside the vase.", memory["constraints"])
+        self.assertIn("Do not show fewer or more than three flowers.", memory["negative_constraints"])
 
 
 if __name__ == "__main__":
     unittest.main()
-

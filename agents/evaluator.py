@@ -71,9 +71,9 @@ def normalize_evaluation(raw: Dict[str, Any], checklist: List[Dict[str, Any]]) -
         expected = expected_by_id.get(item_id, {})
         target = str(raw_item.get("target") or expected.get("target", "yes")).lower()
         answer = _normalize_answer(raw_item.get("answer"))
-        passed = raw_item.get("passed")
-        if not isinstance(passed, bool):
-            passed = answer == target
+        # Treat the yes/no answer as the source of truth. VLMs sometimes return
+        # a stale or contradictory `passed` boolean while the answer is valid.
+        passed = answer == target
         if answer == "unknown":
             passed = False
         items.append(

@@ -169,6 +169,10 @@ def save_turn(
 
     with connect(db_path) as conn:
         conn.execute(
+            "DELETE FROM errors WHERE run_id = ? AND turn_index = ?",
+            (run_id, turn_index),
+        )
+        conn.execute(
             """
             INSERT INTO turns(
                 run_id, turn_index, instruction, image_path,

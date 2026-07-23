@@ -14,6 +14,7 @@ from core.metrics import (
     dashboard_totals,
     list_benchmark_run_ids,
     list_failed_items,
+    list_turn_badcase_matrix,
     list_turn_metrics,
     summarize_drift_types,
     summarize_methods,
@@ -172,18 +173,7 @@ def _inject_styles() -> None:
 
 
 def _render_nav() -> None:
-    brand, links, action = st.columns([1.55, 2.7, 0.78])
-    with brand:
-        st.markdown('<div class="top-nav"><div class="brand"><span class="brand-mark"></span>Mem2Image</div></div>', unsafe_allow_html=True)
-    with links:
-        st.markdown('<div class="nav-links" style="justify-content:flex-end;padding-top:9px"><span>产品功能</span><span>视觉记忆</span><span>使用指南</span></div>', unsafe_allow_html=True)
-    with action:
-        if st.button("进入工作台", type="primary", use_container_width=True, key="nav_workspace"):
-            st.session_state.page = "workspace"
-            st.rerun()
-        if st.button("管理员登录", use_container_width=True, key="nav_admin"):
-            st.session_state.page = "admin"
-            st.rerun()
+    st.markdown('<div class="top-nav"><div class="brand"><span class="brand-mark"></span>Mem2Image</div></div>', unsafe_allow_html=True)
 
 
 def _render_hero() -> None:
@@ -285,20 +275,45 @@ def _render_dashboard() -> None:
 
     method_rows = summarize_methods(benchmark_run_id=benchmark_run_id)
     drift_rows = summarize_drift_types(benchmark_run_id=benchmark_run_id)
+    badcase_matrix_rows = list_turn_badcase_matrix(benchmark_run_id=benchmark_run_id)
     turn_rows = list_turn_metrics(benchmark_run_id=benchmark_run_id)
     failed_rows = list_failed_items(benchmark_run_id=benchmark_run_id)
 
-    tabs = st.tabs(["Method 对比", "Drift 类型", "Turn 明细", "Bad Cases", "原始 Runs"])
+    tabs = st.tabs(["逐轮 Badcase", "Method 对比", "Drift 类型", "Turn 明细", "Bad Cases", "原始 Runs"])
     with tabs[0]:
+        st.caption("每一轮一行。status=BAD 表示该轮至少一个 checklist item 未通过；failed_items 显示失败项、失败类型和来源。")
+        filtered_matrix = _filter_badcase_matrix(badcase_matrix_rows)
+        _dataframe_or_empty(filtered_matrix, "暂无逐轮评测数据。")
+        bad_rows = [row for row in filtered_matrix if row.get("status") == "BAD"]
+        if bad_rows:
+            st.subheader("当前筛选下的 badcase")
+            for row in bad_rows:
+                with st.expander(
+                    f"{row.get('method')} / {row.get('case_id')} / Turn {row.get('turn_index')} "
+                    f"- score {row.get('checklist_score')}"
+                ):
+                    st.write(row.get("instruction", ""))
+                    st.json(
+                        {
+                            "failed_item_count": row.get("failed_item_count"),
+                            "critical_failed_count": row.get("critical_failed_count"),
+                            "history_retention": row.get("history_retention"),
+                            "current_success": row.get("current_success"),
+                            "failed_items": row.get("failed_items"),
+                            "failed_reasons": row.get("failed_reasons"),
+                            "image_path": row.get("image_path"),
+                        }
+                    )
+    with tabs[1]:
         st.caption("方法级聚合。History/Current 使用 v2-style per-turn aggregation。")
         _dataframe_or_empty(method_rows, "暂无 method 聚合数据。")
-    with tabs[1]:
+    with tabs[2]:
         st.caption("按 drift_type 汇总失败和通过率。")
         _dataframe_or_empty(drift_rows, "暂无 drift type 数据。")
-    with tabs[2]:
+    with tabs[3]:
         st.caption("每一轮的输入、分数、失败数量和图像路径。")
         _dataframe_or_empty(turn_rows, "暂无 turn 数据。")
-    with tabs[3]:
+    with tabs[4]:
         st.caption("所有未通过 checklist item，可用于 bad case 分析。")
         _dataframe_or_empty(failed_rows, "当前筛选下没有失败项。")
         if failed_rows:
@@ -307,7 +322,7 @@ def _render_dashboard() -> None:
             st.write(f"**{first.get('case_id') or '-'} / {first.get('method') or '-'} / Turn {first.get('turn_index')}**")
             st.write(first.get("question", ""))
             st.json({k: first.get(k) for k in ("target", "answer", "drift_type", "source", "critical", "reason")})
-    with tabs[4]:
+    with tabs[5]:
         st.caption(f"SQLite database: `{database.DEFAULT_DB_PATH}`")
         _dataframe_or_empty(database.list_runs(), "暂无 run 数据。")
 
@@ -382,6 +397,32 @@ def _dataframe_or_empty(rows: list[Dict[str, Any]], empty_text: str) -> None:
         st.dataframe(rows, use_container_width=True, hide_index=True)
     else:
         st.info(empty_text)
+
+
+def _filter_badcase_matrix(rows: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
+    if not rows:
+        return rows
+
+    filter_cols = st.columns([1, 1, 1])
+    methods = ["全部方法"] + sorted({str(row.get("method")) for row in rows if row.get("method")})
+    cases = ["全部 case"] + sorted({str(row.get("case_id")) for row in rows if row.get("case_id")})
+    statuses = ["全部状态", "BAD", "OK"]
+
+    with filter_cols[0]:
+        selected_method = st.selectbox("Method", methods, index=0)
+    with filter_cols[1]:
+        selected_case = st.selectbox("Case", cases, index=0)
+    with filter_cols[2]:
+        selected_status = st.selectbox("Status", statuses, index=0)
+
+    result = rows
+    if selected_method != "全部方法":
+        result = [row for row in result if row.get("method") == selected_method]
+    if selected_case != "全部 case":
+        result = [row for row in result if row.get("case_id") == selected_case]
+    if selected_status != "全部状态":
+        result = [row for row in result if row.get("status") == selected_status]
+    return result
 
 
 def _fmt_metric(value: Any) -> str:

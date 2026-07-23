@@ -226,6 +226,89 @@ def list_failed_items(
     return [_rounded(row) for row in rows]
 
 
+def list_turn_badcase_matrix(
+    db_path: Path = database.DEFAULT_DB_PATH,
+    benchmark_run_id: str = "",
+) -> List[Dict[str, Any]]:
+    database.init_db(db_path)
+    params: List[Any] = []
+    where = ""
+    if benchmark_run_id:
+        where = "WHERE runs.metadata_json LIKE ?"
+        params.append(f'%"benchmark_run_id": "{benchmark_run_id}"%')
+
+    with database.connect(db_path) as conn:
+        rows = conn.execute(
+            f"""
+            WITH item_rollup AS (
+                SELECT
+                    checklist_items.run_id,
+                    checklist_items.turn_index,
+                    COUNT(*) AS item_count,
+                    SUM(CASE WHEN checklist_items.passed = 1 THEN 1 ELSE 0 END) AS passed_count,
+                    SUM(CASE WHEN {_history_item_condition()} THEN 1 ELSE 0 END) AS history_total,
+                    SUM(CASE WHEN {_history_item_condition()} AND checklist_items.passed = 1 THEN 1 ELSE 0 END)
+                        AS history_passed,
+                    SUM(CASE WHEN {_current_item_condition()} THEN 1 ELSE 0 END) AS current_total,
+                    SUM(CASE WHEN {_current_item_condition()} AND checklist_items.passed = 1 THEN 1 ELSE 0 END)
+                        AS current_passed,
+                    SUM(CASE WHEN checklist_items.passed = 0 AND checklist_items.critical = 1 THEN 1 ELSE 0 END)
+                        AS critical_failed_count,
+                    GROUP_CONCAT(
+                        CASE
+                            WHEN checklist_items.passed = 0 THEN
+                                checklist_items.item_id || ' [' || checklist_items.drift_type || '/' || checklist_items.source || ']'
+                            ELSE NULL
+                        END,
+                        '; '
+                    ) AS failed_items,
+                    GROUP_CONCAT(
+                        CASE
+                            WHEN checklist_items.passed = 0 THEN checklist_items.reason
+                            ELSE NULL
+                        END,
+                        ' | '
+                    ) AS failed_reasons
+                FROM checklist_items
+                GROUP BY checklist_items.run_id, checklist_items.turn_index
+            )
+            SELECT
+                runs.method,
+                runs.case_id,
+                turns.turn_index,
+                CASE
+                    WHEN COALESCE(turns.failed_item_count, 0) > 0 THEN 'BAD'
+                    ELSE 'OK'
+                END AS status,
+                turns.checklist_score,
+                COALESCE(turns.failed_item_count, 0) AS failed_item_count,
+                COALESCE(item_rollup.critical_failed_count, 0) AS critical_failed_count,
+                CASE
+                    WHEN COALESCE(item_rollup.history_total, 0) = 0 THEN 1.0
+                    ELSE CAST(item_rollup.history_passed AS REAL) / item_rollup.history_total
+                END AS history_retention,
+                CASE
+                    WHEN COALESCE(item_rollup.current_total, 0) = 0 THEN 1.0
+                    WHEN item_rollup.current_passed = item_rollup.current_total THEN 1.0
+                    ELSE 0.0
+                END AS current_success,
+                COALESCE(item_rollup.failed_items, '') AS failed_items,
+                COALESCE(item_rollup.failed_reasons, '') AS failed_reasons,
+                turns.instruction,
+                turns.image_path
+            FROM runs
+            JOIN turns ON runs.run_id = turns.run_id
+            LEFT JOIN item_rollup
+                ON turns.run_id = item_rollup.run_id
+                AND turns.turn_index = item_rollup.turn_index
+            {where}
+            ORDER BY runs.method, runs.case_id, turns.turn_index
+            """,
+            params,
+        ).fetchall()
+    return [_rounded(row) for row in rows]
+
+
 def dashboard_totals(
     db_path: Path = database.DEFAULT_DB_PATH,
     benchmark_run_id: str = "",

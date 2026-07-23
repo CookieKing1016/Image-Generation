@@ -37,6 +37,12 @@ def main() -> None:
         help="Methods to run: current-only, full-history, structured-memory.",
     )
     parser.add_argument("--case-limit", type=int, default=0)
+    parser.add_argument(
+        "--case-ids",
+        nargs="+",
+        default=None,
+        help="Optional case_id list to run. Applied before --case-limit.",
+    )
     parser.add_argument("--turn-limit", type=int, default=0)
     parser.add_argument("--max-retries", type=int, default=2)
     parser.add_argument("--run-id", default="")
@@ -64,6 +70,7 @@ def main() -> None:
         benchmark_run_id=args.run_id or make_benchmark_run_id(),
         db_path=args.db,
         case_limit=args.case_limit,
+        case_ids=args.case_ids,
         turn_limit=args.turn_limit,
         max_retries=args.max_retries,
         dry_run=args.dry_run,
@@ -78,6 +85,7 @@ def run_benchmark(
     benchmark_run_id: str,
     db_path: Path = database.DEFAULT_DB_PATH,
     case_limit: int = 0,
+    case_ids: List[str] | None = None,
     turn_limit: int = 0,
     max_retries: int = 2,
     dry_run: bool = False,
@@ -85,7 +93,14 @@ def run_benchmark(
     benchmark = load_benchmark(benchmark_path)
     if dry_run and "structured-memory" in method_names:
         raise ValueError("Dry run cannot execute structured-memory because intent parsing requires an LLM API call.")
-    cases = benchmark["cases"][: case_limit or None]
+    cases = benchmark["cases"]
+    if case_ids:
+        requested = set(case_ids)
+        cases = [case for case in cases if case["case_id"] in requested]
+        missing = sorted(requested - {case["case_id"] for case in cases})
+        if missing:
+            raise ValueError(f"Unknown benchmark case_id(s): {', '.join(missing)}")
+    cases = cases[: case_limit or None]
     client = None if dry_run else SiliconFlowClient(settings)
     evaluator = None if dry_run else ChecklistEvaluator(client)
     output_root = BENCHMARK_OUTPUT_ROOT / benchmark_run_id
@@ -166,6 +181,10 @@ def run_case(
         checklist = turn["checklist"]
         turn_dir = run_dir / f"turn_{turn_index:02d}"
         turn_dir.mkdir(parents=True, exist_ok=True)
+        print(
+            f"[benchmark] {method_name} / {case['case_id']} / turn {turn_index}/{len(turns)}",
+            flush=True,
+        )
 
         try:
             method_result = method.build_turn(instruction, history, state)
@@ -235,6 +254,10 @@ def run_case(
         except Exception as exc:
             save_error_file(turn_dir, turn_index, "benchmark_turn", exc)
             database.save_error(run_id, turn_index, "benchmark_turn", exc, db_path=db_path)
+            print(
+                f"[benchmark] FAILED {method_name} / {case['case_id']} / turn {turn_index}: {type(exc).__name__}: {exc}",
+                flush=True,
+            )
             break
 
     return {
