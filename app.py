@@ -3,12 +3,21 @@
 from __future__ import annotations
 
 import html
+import os
 from pathlib import Path
 from typing import Any, Dict
 
 import streamlit as st
 
 from core import database
+from core.metrics import (
+    dashboard_totals,
+    list_benchmark_run_ids,
+    list_failed_items,
+    list_turn_metrics,
+    summarize_drift_types,
+    summarize_methods,
+)
 from core.orchestrator import Mem2ImageOrchestrator, TurnResult
 from core.run_logger import make_run_id
 from core.schema import empty_memory
@@ -16,6 +25,7 @@ from tools.config import Settings
 
 
 ROOT = Path(__file__).resolve().parent
+HERO_IMAGE_PATH = ROOT / "assets" / "hero-red-scarf-dog.png"
 
 
 def main() -> None:
@@ -30,6 +40,8 @@ def main() -> None:
     if st.session_state.page == "workspace":
         settings = _settings_panel()
         _render_workspace(settings)
+    elif st.session_state.page == "admin":
+        _render_admin_gate()
     else:
         _render_nav()
         _render_hero()
@@ -46,6 +58,8 @@ def _init_state() -> None:
         "results": [],
         "last_error": "",
         "page": "home",
+        "admin_authenticated": False,
+        "admin_error": "",
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -167,6 +181,9 @@ def _render_nav() -> None:
         if st.button("进入工作台", type="primary", use_container_width=True, key="nav_workspace"):
             st.session_state.page = "workspace"
             st.rerun()
+        if st.button("管理员登录", use_container_width=True, key="nav_admin"):
+            st.session_state.page = "admin"
+            st.rerun()
 
 
 def _render_hero() -> None:
@@ -181,6 +198,10 @@ def _render_hero() -> None:
         with b:
             if st.button("打开工作台", use_container_width=True):
                 st.session_state.page = "workspace"
+                st.rerun()
+        with _:
+            if st.button("管理员登录", use_container_width=True, key="hero_admin"):
+                st.session_state.page = "admin"
                 st.rerun()
         st.markdown('<div class="metric-row"><span>更懂语境</span><span>更高一致性</span><span>更可控生成</span></div>', unsafe_allow_html=True)
     with right:
@@ -203,6 +224,9 @@ def _render_workspace(settings: Settings) -> None:
     sidebar, content = st.columns([1.1, 4.6], gap="medium")
     with sidebar:
         st.markdown('<aside class="workspace-nav"><div class="workspace-brand"><span class="brand-mark"></span>Mem2Image</div><div class="workspace-label">工作区</div><div class="nav-item active">⌂　我的工作台</div><div class="nav-item">▱　我的项目</div><div class="status-card">状态信息<b>● 已连接</b><span style="color:#8a8a8a;font-size:11px">服务运行正常</span></div></aside>', unsafe_allow_html=True)
+        if st.button("管理员入口", use_container_width=True, key="workspace_admin"):
+            st.session_state.page = "admin"
+            st.rerun()
         if st.button("← 返回主页", use_container_width=True, key="back_home"):
             st.session_state.page = "home"
             st.rerun()
@@ -233,6 +257,93 @@ def _render_chat_turn(result: Dict[str, Any]) -> None:
     else:
         image_html = f'<div class="generated-card" style="aspect-ratio:{aspect_ratio}">生成结果将在这里显示</div>'
     st.markdown('<div class="chat-assistant"><div class="assistant-name">◫　Mem2Image</div><div class="assistant-copy">已完成本轮调整，并保留此前的视觉意图与主体设定。</div>' + image_html + '</div>', unsafe_allow_html=True)
+
+
+def _render_dashboard() -> None:
+    top_left, top_right = st.columns([4, 1])
+    with top_left:
+        st.markdown('<div class="eyebrow">Evaluation Dashboard</div><h2 style="margin:0 0 6px;font-size:28px">实验看板</h2><p style="color:#757575;font-size:13px;margin:0 0 18px">查看 SQLite 中沉淀的 benchmark、run、turn、checklist 和 bad case 数据。</p>', unsafe_allow_html=True)
+    with top_right:
+        if st.button("退出看板", use_container_width=True, key="dashboard_home"):
+            st.session_state.page = "home"
+            st.rerun()
+
+    run_ids = list_benchmark_run_ids()
+    options = ["全部数据"] + run_ids
+    selected = st.selectbox("Benchmark run", options=options, index=0)
+    benchmark_run_id = "" if selected == "全部数据" else selected
+
+    totals = dashboard_totals(benchmark_run_id=benchmark_run_id)
+    metric_cols = st.columns(7)
+    metric_cols[0].metric("Methods", totals["method_count"])
+    metric_cols[1].metric("Cases", totals["case_count"])
+    metric_cols[2].metric("Turns", totals["turn_count"])
+    metric_cols[3].metric("Avg Score", _fmt_metric(totals["avg_checklist_score"]))
+    metric_cols[4].metric("History", _fmt_metric(totals["history_retention_rate"]))
+    metric_cols[5].metric("Current", _fmt_metric(totals["current_turn_success_rate"]))
+    metric_cols[6].metric("Failed", totals["failed_item_count"])
+
+    method_rows = summarize_methods(benchmark_run_id=benchmark_run_id)
+    drift_rows = summarize_drift_types(benchmark_run_id=benchmark_run_id)
+    turn_rows = list_turn_metrics(benchmark_run_id=benchmark_run_id)
+    failed_rows = list_failed_items(benchmark_run_id=benchmark_run_id)
+
+    tabs = st.tabs(["Method 对比", "Drift 类型", "Turn 明细", "Bad Cases", "原始 Runs"])
+    with tabs[0]:
+        st.caption("方法级聚合。History/Current 使用 v2-style per-turn aggregation。")
+        _dataframe_or_empty(method_rows, "暂无 method 聚合数据。")
+    with tabs[1]:
+        st.caption("按 drift_type 汇总失败和通过率。")
+        _dataframe_or_empty(drift_rows, "暂无 drift type 数据。")
+    with tabs[2]:
+        st.caption("每一轮的输入、分数、失败数量和图像路径。")
+        _dataframe_or_empty(turn_rows, "暂无 turn 数据。")
+    with tabs[3]:
+        st.caption("所有未通过 checklist item，可用于 bad case 分析。")
+        _dataframe_or_empty(failed_rows, "当前筛选下没有失败项。")
+        if failed_rows:
+            first = failed_rows[0]
+            st.subheader("最新失败项")
+            st.write(f"**{first.get('case_id') or '-'} / {first.get('method') or '-'} / Turn {first.get('turn_index')}**")
+            st.write(first.get("question", ""))
+            st.json({k: first.get(k) for k in ("target", "answer", "drift_type", "source", "critical", "reason")})
+    with tabs[4]:
+        st.caption(f"SQLite database: `{database.DEFAULT_DB_PATH}`")
+        _dataframe_or_empty(database.list_runs(), "暂无 run 数据。")
+
+
+def _render_admin_gate() -> None:
+    if st.session_state.admin_authenticated:
+        _render_dashboard()
+        return
+
+    left, middle, right = st.columns([1, 1.35, 1])
+    with middle:
+        st.markdown('<div class="eyebrow">Admin Only</div><h2 style="margin:0 0 8px;font-size:28px">管理员登录</h2><p style="color:#757575;font-size:13px;margin:0 0 20px">实验看板包含 run、评测、失败项和调试数据，仅管理员可见。</p>', unsafe_allow_html=True)
+        password = st.text_input("管理员口令", type="password", key="admin_password_input")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("进入实验看板", type="primary", use_container_width=True, key="admin_login"):
+                if _check_admin_password(password):
+                    st.session_state.admin_authenticated = True
+                    st.session_state.admin_error = ""
+                    st.rerun()
+                else:
+                    st.session_state.admin_error = "管理员口令不正确。"
+        with col2:
+            if st.button("返回主页", use_container_width=True, key="admin_back_home"):
+                st.session_state.page = "home"
+                st.session_state.admin_error = ""
+                st.rerun()
+        if st.session_state.admin_error:
+            st.error(st.session_state.admin_error)
+        if not os.getenv("MEM2IMAGE_ADMIN_PASSWORD"):
+            st.caption("本地开发提示：未设置 MEM2IMAGE_ADMIN_PASSWORD，当前使用默认口令 admin。部署前请在环境变量中设置正式管理员口令。")
+
+
+def _check_admin_password(password: str) -> bool:
+    expected = os.getenv("MEM2IMAGE_ADMIN_PASSWORD", "admin")
+    return bool(password) and password == expected
 
 
 def _render_memory_section() -> None:
@@ -266,6 +377,20 @@ def _render_footer() -> None:
     st.markdown('<footer class="footer"><span><b>◫ Mem2Image</b><br>让多轮对话更懂你的视觉意图</span><span>Research Prototype · 2026</span></footer>', unsafe_allow_html=True)
 
 
+def _dataframe_or_empty(rows: list[Dict[str, Any]], empty_text: str) -> None:
+    if rows:
+        st.dataframe(rows, use_container_width=True, hide_index=True)
+    else:
+        st.info(empty_text)
+
+
+def _fmt_metric(value: Any) -> str:
+    try:
+        return f"{float(value):.3f}"
+    except (TypeError, ValueError):
+        return "0.000"
+
+
 def _run_turn(settings: Settings, instruction: str) -> None:
     if not instruction:
         st.session_state.last_error = "请输入本轮画面需求。"
@@ -294,6 +419,8 @@ def _preview_image() -> Path | None:
         latest = Path(st.session_state.results[-1].get("image_path", ""))
         if _is_displayable_image(latest):
             return latest
+    if _is_displayable_image(HERO_IMAGE_PATH):
+        return HERO_IMAGE_PATH
     return None
 
 

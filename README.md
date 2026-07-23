@@ -17,6 +17,7 @@ Edit `.env` and set:
 
 ```bash
 SILICONFLOW_API_KEY=your_api_key_here
+MEM2IMAGE_ADMIN_PASSWORD=change-this-before-deploy
 ```
 
 Model names can be changed in `.env` if a default model is unavailable on your account.
@@ -78,6 +79,16 @@ The lightweight backend uses these tables:
 
 This keeps the prototype simple: the filesystem remains the artifact store, and
 SQLite becomes the query layer for historical analysis.
+
+The evaluation dashboard is admin-only in the Streamlit app. Set the admin
+password in `.env`:
+
+```bash
+MEM2IMAGE_ADMIN_PASSWORD=your_admin_password
+```
+
+If the variable is missing during local development, the fallback password is
+`admin`. Do not deploy with the fallback.
 
 ## First-Round Benchmark
 

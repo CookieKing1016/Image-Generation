@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -136,12 +137,135 @@ def summarize_drift_types(
     return [_rounded(row) for row in rows]
 
 
+def list_benchmark_run_ids(db_path: Path = database.DEFAULT_DB_PATH) -> List[str]:
+    database.init_db(db_path)
+    with database.connect(db_path) as conn:
+        rows = conn.execute("SELECT metadata_json FROM runs").fetchall()
+    ids = set()
+    for row in rows:
+        try:
+            metadata = json.loads(row["metadata_json"] or "{}")
+        except json.JSONDecodeError:
+            continue
+        benchmark_run_id = metadata.get("benchmark_run_id")
+        if benchmark_run_id:
+            ids.add(str(benchmark_run_id))
+    return sorted(ids, reverse=True)
+
+
+def list_turn_metrics(
+    db_path: Path = database.DEFAULT_DB_PATH,
+    benchmark_run_id: str = "",
+) -> List[Dict[str, Any]]:
+    database.init_db(db_path)
+    params: List[Any] = []
+    where = ""
+    if benchmark_run_id:
+        where = "WHERE runs.metadata_json LIKE ?"
+        params.append(f'%"benchmark_run_id": "{benchmark_run_id}"%')
+
+    with database.connect(db_path) as conn:
+        rows = conn.execute(
+            f"""
+            SELECT
+                runs.run_id,
+                runs.case_id,
+                runs.method,
+                turns.turn_index,
+                turns.instruction,
+                turns.checklist_score,
+                turns.failed_item_count,
+                turns.image_path,
+                turns.created_at
+            FROM runs
+            JOIN turns ON runs.run_id = turns.run_id
+            {where}
+            ORDER BY runs.created_at DESC, runs.run_id DESC, turns.turn_index
+            """,
+            params,
+        ).fetchall()
+    return [_rounded(row) for row in rows]
+
+
+def list_failed_items(
+    db_path: Path = database.DEFAULT_DB_PATH,
+    benchmark_run_id: str = "",
+) -> List[Dict[str, Any]]:
+    database.init_db(db_path)
+    params: List[Any] = []
+    where = "WHERE checklist_items.passed = 0"
+    if benchmark_run_id:
+        where += " AND runs.metadata_json LIKE ?"
+        params.append(f'%"benchmark_run_id": "{benchmark_run_id}"%')
+
+    with database.connect(db_path) as conn:
+        rows = conn.execute(
+            f"""
+            SELECT
+                runs.run_id,
+                runs.case_id,
+                runs.method,
+                checklist_items.turn_index,
+                checklist_items.item_id,
+                checklist_items.item_type,
+                checklist_items.source,
+                checklist_items.critical,
+                checklist_items.drift_type,
+                checklist_items.question,
+                checklist_items.target,
+                checklist_items.answer,
+                checklist_items.confidence,
+                checklist_items.reason
+            FROM checklist_items
+            JOIN runs ON checklist_items.run_id = runs.run_id
+            {where}
+            ORDER BY runs.created_at DESC, runs.run_id DESC, checklist_items.turn_index, checklist_items.item_id
+            """,
+            params,
+        ).fetchall()
+    return [_rounded(row) for row in rows]
+
+
+def dashboard_totals(
+    db_path: Path = database.DEFAULT_DB_PATH,
+    benchmark_run_id: str = "",
+) -> Dict[str, Any]:
+    method_rows = summarize_methods(db_path, benchmark_run_id)
+    turns = list_turn_metrics(db_path, benchmark_run_id)
+    failed = list_failed_items(db_path, benchmark_run_id)
+    cases = {row.get("case_id") for row in turns if row.get("case_id")}
+    avg_score = _mean(row.get("avg_checklist_score") for row in method_rows)
+    history = _mean(row.get("history_retention_rate") for row in method_rows)
+    current = _mean(row.get("current_turn_success_rate") for row in method_rows)
+    return {
+        "method_count": len(method_rows),
+        "case_count": len(cases),
+        "turn_count": len(turns),
+        "failed_item_count": len(failed),
+        "avg_checklist_score": round(avg_score, 4),
+        "history_retention_rate": round(history, 4),
+        "current_turn_success_rate": round(current, 4),
+    }
+
+
 def _rounded(row) -> Dict[str, Any]:
     result = {key: row[key] for key in row.keys()}
     for key, value in list(result.items()):
         if isinstance(value, float):
             result[key] = round(value, 4)
     return result
+
+
+def _mean(values) -> float:
+    parsed = []
+    for value in values:
+        if value is None:
+            continue
+        try:
+            parsed.append(float(value))
+        except (TypeError, ValueError):
+            continue
+    return sum(parsed) / len(parsed) if parsed else 0.0
 
 
 def _history_item_condition() -> str:
