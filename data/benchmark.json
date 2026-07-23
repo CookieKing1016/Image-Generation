@@ -1,0 +1,148 @@
+{
+  "name": "mem2image_first_round",
+  "version": 1,
+  "description": "First-round multi-turn T2I benchmark for intention drift and memory retention.",
+  "cases": [
+    {
+      "case_id": "red_scarf_dog",
+      "description": "Attribute and pose retention across scene and lighting changes.",
+      "drift_types": ["attribute_drift", "scene_drift", "pose_retention"],
+      "turns": [
+        {
+          "instruction": "Generate a dog sitting in a park.",
+          "checklist": [
+            {"id": "dog_exists", "question": "Is there a dog as the main subject?", "target": "yes", "type": "object", "source": "current", "critical": true, "drift_type": "object_retention"},
+            {"id": "dog_sitting", "question": "Is the dog sitting?", "target": "yes", "type": "pose", "source": "current", "critical": true, "drift_type": "pose_retention"},
+            {"id": "park_background", "question": "Does the image show a park background?", "target": "yes", "type": "scene", "source": "current", "critical": false, "drift_type": "scene_drift"}
+          ]
+        },
+        {
+          "instruction": "Make the dog wear a red scarf.",
+          "checklist": [
+            {"id": "dog_exists", "question": "Is there a dog as the main subject?", "target": "yes", "type": "object", "source": "history", "critical": true, "drift_type": "object_retention"},
+            {"id": "dog_sitting", "question": "Is the dog sitting?", "target": "yes", "type": "pose", "source": "history", "critical": true, "drift_type": "pose_retention"},
+            {"id": "red_scarf", "question": "Is the dog visibly wearing a red scarf?", "target": "yes", "type": "attribute", "source": "current", "critical": true, "drift_type": "attribute_drift"}
+          ]
+        },
+        {
+          "instruction": "Change the background to a snowy forest.",
+          "checklist": [
+            {"id": "dog_exists", "question": "Is there a dog as the main subject?", "target": "yes", "type": "object", "source": "history", "critical": true, "drift_type": "object_retention"},
+            {"id": "dog_sitting", "question": "Is the dog sitting?", "target": "yes", "type": "pose", "source": "history", "critical": true, "drift_type": "pose_retention"},
+            {"id": "red_scarf", "question": "Is the dog visibly wearing a red scarf?", "target": "yes", "type": "attribute", "source": "history", "critical": true, "drift_type": "attribute_drift"},
+            {"id": "snowy_forest", "question": "Does the image show a snowy forest background?", "target": "yes", "type": "scene", "source": "current", "critical": true, "drift_type": "scene_drift"}
+          ]
+        },
+        {
+          "instruction": "Add warm lighting, but keep the red scarf and dog pose.",
+          "checklist": [
+            {"id": "dog_exists", "question": "Is there a dog as the main subject?", "target": "yes", "type": "object", "source": "history", "critical": true, "drift_type": "object_retention"},
+            {"id": "dog_sitting", "question": "Is the dog sitting?", "target": "yes", "type": "pose", "source": "history", "critical": true, "drift_type": "pose_retention"},
+            {"id": "red_scarf", "question": "Is the dog visibly wearing a red scarf?", "target": "yes", "type": "attribute", "source": "history", "critical": true, "drift_type": "attribute_drift"},
+            {"id": "snowy_forest", "question": "Does the image show a snowy forest background?", "target": "yes", "type": "scene", "source": "history", "critical": true, "drift_type": "scene_drift"},
+            {"id": "warm_lighting", "question": "Does the image have warm lighting?", "target": "yes", "type": "scene", "source": "current", "critical": false, "drift_type": "scene_drift"}
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "blue_hat_robot",
+      "description": "Accessory and style retention while changing environment.",
+      "drift_types": ["attribute_drift", "style_drift", "scene_drift"],
+      "turns": [
+        {"instruction": "Generate a friendly robot standing in a studio.", "checklist": [{"id": "robot_exists", "question": "Is there a friendly robot as the main subject?", "target": "yes", "type": "object", "source": "current", "critical": true, "drift_type": "object_retention"}, {"id": "studio", "question": "Does the image show a studio setting?", "target": "yes", "type": "scene", "source": "current", "critical": false, "drift_type": "scene_drift"}]},
+        {"instruction": "Give the robot a blue hat.", "checklist": [{"id": "robot_exists", "question": "Is there a friendly robot as the main subject?", "target": "yes", "type": "object", "source": "history", "critical": true, "drift_type": "object_retention"}, {"id": "blue_hat", "question": "Is the robot visibly wearing a blue hat?", "target": "yes", "type": "attribute", "source": "current", "critical": true, "drift_type": "attribute_drift"}]},
+        {"instruction": "Change the style to watercolor illustration.", "checklist": [{"id": "robot_exists", "question": "Is there a friendly robot as the main subject?", "target": "yes", "type": "object", "source": "history", "critical": true, "drift_type": "object_retention"}, {"id": "blue_hat", "question": "Is the robot visibly wearing a blue hat?", "target": "yes", "type": "attribute", "source": "history", "critical": true, "drift_type": "attribute_drift"}, {"id": "watercolor", "question": "Does the image look like a watercolor illustration?", "target": "yes", "type": "style", "source": "current", "critical": true, "drift_type": "style_drift"}]},
+        {"instruction": "Move the robot to a moon surface, keeping the blue hat and watercolor style.", "checklist": [{"id": "robot_exists", "question": "Is there a friendly robot as the main subject?", "target": "yes", "type": "object", "source": "history", "critical": true, "drift_type": "object_retention"}, {"id": "blue_hat", "question": "Is the robot visibly wearing a blue hat?", "target": "yes", "type": "attribute", "source": "history", "critical": true, "drift_type": "attribute_drift"}, {"id": "watercolor", "question": "Does the image look like a watercolor illustration?", "target": "yes", "type": "style", "source": "history", "critical": true, "drift_type": "style_drift"}, {"id": "moon_surface", "question": "Does the image show a moon surface setting?", "target": "yes", "type": "scene", "source": "current", "critical": true, "drift_type": "scene_drift"}]}
+      ]
+    },
+    {
+      "case_id": "cat_book_window",
+      "description": "Object relation and lighting retention.",
+      "drift_types": ["spatial_relation", "object_retention", "scene_drift"],
+      "turns": [
+        {"instruction": "Generate a cat sleeping beside a book near a window.", "checklist": [{"id": "cat_exists", "question": "Is there a cat as the main subject?", "target": "yes", "type": "object", "source": "current", "critical": true, "drift_type": "object_retention"}, {"id": "book_exists", "question": "Is there a visible book beside the cat?", "target": "yes", "type": "spatial", "source": "current", "critical": true, "drift_type": "spatial_relation"}, {"id": "window_exists", "question": "Is the cat near a window?", "target": "yes", "type": "spatial", "source": "current", "critical": false, "drift_type": "spatial_relation"}]},
+        {"instruction": "Make the cat orange.", "checklist": [{"id": "cat_exists", "question": "Is there a cat as the main subject?", "target": "yes", "type": "object", "source": "history", "critical": true, "drift_type": "object_retention"}, {"id": "orange_cat", "question": "Is the cat orange?", "target": "yes", "type": "attribute", "source": "current", "critical": true, "drift_type": "attribute_drift"}, {"id": "book_exists", "question": "Is there a visible book beside the cat?", "target": "yes", "type": "spatial", "source": "history", "critical": true, "drift_type": "spatial_relation"}]},
+        {"instruction": "Add soft morning sunlight.", "checklist": [{"id": "cat_exists", "question": "Is there a cat as the main subject?", "target": "yes", "type": "object", "source": "history", "critical": true, "drift_type": "object_retention"}, {"id": "orange_cat", "question": "Is the cat orange?", "target": "yes", "type": "attribute", "source": "history", "critical": true, "drift_type": "attribute_drift"}, {"id": "book_exists", "question": "Is there a visible book beside the cat?", "target": "yes", "type": "spatial", "source": "history", "critical": true, "drift_type": "spatial_relation"}, {"id": "morning_sunlight", "question": "Does the image have soft morning sunlight?", "target": "yes", "type": "scene", "source": "current", "critical": false, "drift_type": "scene_drift"}]},
+        {"instruction": "Change the room into a cozy library, keeping the cat beside the book.", "checklist": [{"id": "cat_exists", "question": "Is there a cat as the main subject?", "target": "yes", "type": "object", "source": "history", "critical": true, "drift_type": "object_retention"}, {"id": "orange_cat", "question": "Is the cat orange?", "target": "yes", "type": "attribute", "source": "history", "critical": true, "drift_type": "attribute_drift"}, {"id": "book_exists", "question": "Is there a visible book beside the cat?", "target": "yes", "type": "spatial", "source": "history", "critical": true, "drift_type": "spatial_relation"}, {"id": "library", "question": "Does the image show a cozy library setting?", "target": "yes", "type": "scene", "source": "current", "critical": true, "drift_type": "scene_drift"}]}
+      ]
+    },
+    {
+      "case_id": "two_balloons_child",
+      "description": "Counting and color retention.",
+      "drift_types": ["counting", "attribute_drift"],
+      "turns": [
+        {"instruction": "Generate a child holding two balloons.", "checklist": [{"id": "child_exists", "question": "Is there a child as the main subject?", "target": "yes", "type": "object", "source": "current", "critical": true, "drift_type": "object_retention"}, {"id": "two_balloons", "question": "Is the child holding exactly two balloons?", "target": "yes", "type": "counting", "source": "current", "critical": true, "drift_type": "counting"}]},
+        {"instruction": "Make one balloon red and one balloon yellow.", "checklist": [{"id": "child_exists", "question": "Is there a child as the main subject?", "target": "yes", "type": "object", "source": "history", "critical": true, "drift_type": "object_retention"}, {"id": "two_balloons", "question": "Is the child holding exactly two balloons?", "target": "yes", "type": "counting", "source": "history", "critical": true, "drift_type": "counting"}, {"id": "red_yellow_balloons", "question": "Are the two balloons red and yellow?", "target": "yes", "type": "attribute", "source": "current", "critical": true, "drift_type": "attribute_drift"}]},
+        {"instruction": "Put the child on a beach.", "checklist": [{"id": "child_exists", "question": "Is there a child as the main subject?", "target": "yes", "type": "object", "source": "history", "critical": true, "drift_type": "object_retention"}, {"id": "two_balloons", "question": "Is the child holding exactly two balloons?", "target": "yes", "type": "counting", "source": "history", "critical": true, "drift_type": "counting"}, {"id": "red_yellow_balloons", "question": "Are the two balloons red and yellow?", "target": "yes", "type": "attribute", "source": "history", "critical": true, "drift_type": "attribute_drift"}, {"id": "beach", "question": "Does the image show a beach setting?", "target": "yes", "type": "scene", "source": "current", "critical": false, "drift_type": "scene_drift"}]},
+        {"instruction": "Add a sunset sky, but do not add extra balloons.", "checklist": [{"id": "child_exists", "question": "Is there a child as the main subject?", "target": "yes", "type": "object", "source": "history", "critical": true, "drift_type": "object_retention"}, {"id": "two_balloons", "question": "Is the child holding exactly two balloons?", "target": "yes", "type": "counting", "source": "history", "critical": true, "drift_type": "counting"}, {"id": "red_yellow_balloons", "question": "Are the two balloons red and yellow?", "target": "yes", "type": "attribute", "source": "history", "critical": true, "drift_type": "attribute_drift"}, {"id": "sunset_sky", "question": "Does the image show a sunset sky?", "target": "yes", "type": "scene", "source": "current", "critical": false, "drift_type": "scene_drift"}, {"id": "no_extra_balloons", "question": "Does the image contain more than two balloons?", "target": "no", "type": "negative_constraint", "source": "current", "critical": true, "drift_type": "negative_constraint"}]}
+      ]
+    },
+    {
+      "case_id": "vase_three_flowers",
+      "description": "Counting, material, and style retention.",
+      "drift_types": ["counting", "attribute_drift", "style_drift"],
+      "turns": [
+        {"instruction": "Generate a glass vase with three flowers on a table.", "checklist": [{"id": "glass_vase", "question": "Is there a glass vase on a table?", "target": "yes", "type": "object", "source": "current", "critical": true, "drift_type": "object_retention"}, {"id": "three_flowers", "question": "Are there exactly three flowers in the vase?", "target": "yes", "type": "counting", "source": "current", "critical": true, "drift_type": "counting"}]},
+        {"instruction": "Make the flowers purple.", "checklist": [{"id": "glass_vase", "question": "Is there a glass vase on a table?", "target": "yes", "type": "object", "source": "history", "critical": true, "drift_type": "object_retention"}, {"id": "three_flowers", "question": "Are there exactly three flowers in the vase?", "target": "yes", "type": "counting", "source": "history", "critical": true, "drift_type": "counting"}, {"id": "purple_flowers", "question": "Are the flowers purple?", "target": "yes", "type": "attribute", "source": "current", "critical": true, "drift_type": "attribute_drift"}]},
+        {"instruction": "Change the style to a realistic photo.", "checklist": [{"id": "glass_vase", "question": "Is there a glass vase on a table?", "target": "yes", "type": "object", "source": "history", "critical": true, "drift_type": "object_retention"}, {"id": "three_flowers", "question": "Are there exactly three flowers in the vase?", "target": "yes", "type": "counting", "source": "history", "critical": true, "drift_type": "counting"}, {"id": "purple_flowers", "question": "Are the flowers purple?", "target": "yes", "type": "attribute", "source": "history", "critical": true, "drift_type": "attribute_drift"}, {"id": "realistic_photo", "question": "Does the image look like a realistic photo?", "target": "yes", "type": "style", "source": "current", "critical": true, "drift_type": "style_drift"}]},
+        {"instruction": "Add rain visible through a window behind the table.", "checklist": [{"id": "glass_vase", "question": "Is there a glass vase on a table?", "target": "yes", "type": "object", "source": "history", "critical": true, "drift_type": "object_retention"}, {"id": "three_flowers", "question": "Are there exactly three flowers in the vase?", "target": "yes", "type": "counting", "source": "history", "critical": true, "drift_type": "counting"}, {"id": "purple_flowers", "question": "Are the flowers purple?", "target": "yes", "type": "attribute", "source": "history", "critical": true, "drift_type": "attribute_drift"}, {"id": "rain_window", "question": "Is rain visible through a window behind the table?", "target": "yes", "type": "scene", "source": "current", "critical": false, "drift_type": "scene_drift"}]}
+      ]
+    },
+    {
+      "case_id": "cyclist_red_jacket",
+      "description": "Subject pose, clothing, and scene changes.",
+      "drift_types": ["pose_retention", "attribute_drift", "scene_drift"],
+      "turns": [
+        {"instruction": "Generate a cyclist riding a bicycle on a city street.", "checklist": [{"id": "cyclist_exists", "question": "Is there a cyclist riding a bicycle?", "target": "yes", "type": "object", "source": "current", "critical": true, "drift_type": "object_retention"}, {"id": "city_street", "question": "Does the image show a city street?", "target": "yes", "type": "scene", "source": "current", "critical": false, "drift_type": "scene_drift"}]},
+        {"instruction": "Make the cyclist wear a red jacket.", "checklist": [{"id": "cyclist_exists", "question": "Is there a cyclist riding a bicycle?", "target": "yes", "type": "object", "source": "history", "critical": true, "drift_type": "object_retention"}, {"id": "red_jacket", "question": "Is the cyclist wearing a red jacket?", "target": "yes", "type": "attribute", "source": "current", "critical": true, "drift_type": "attribute_drift"}]},
+        {"instruction": "Change the weather to heavy rain.", "checklist": [{"id": "cyclist_exists", "question": "Is there a cyclist riding a bicycle?", "target": "yes", "type": "object", "source": "history", "critical": true, "drift_type": "object_retention"}, {"id": "red_jacket", "question": "Is the cyclist wearing a red jacket?", "target": "yes", "type": "attribute", "source": "history", "critical": true, "drift_type": "attribute_drift"}, {"id": "heavy_rain", "question": "Does the image show heavy rain?", "target": "yes", "type": "scene", "source": "current", "critical": true, "drift_type": "scene_drift"}]},
+        {"instruction": "Make it nighttime, keeping the cyclist riding and the red jacket visible.", "checklist": [{"id": "cyclist_exists", "question": "Is there a cyclist riding a bicycle?", "target": "yes", "type": "object", "source": "history", "critical": true, "drift_type": "object_retention"}, {"id": "red_jacket", "question": "Is the cyclist wearing a red jacket?", "target": "yes", "type": "attribute", "source": "history", "critical": true, "drift_type": "attribute_drift"}, {"id": "heavy_rain", "question": "Does the image show heavy rain?", "target": "yes", "type": "scene", "source": "history", "critical": false, "drift_type": "scene_drift"}, {"id": "nighttime", "question": "Does the image show a nighttime setting?", "target": "yes", "type": "scene", "source": "current", "critical": false, "drift_type": "scene_drift"}]}
+      ]
+    },
+    {
+      "case_id": "castle_pixel_art",
+      "description": "Style and object preservation.",
+      "drift_types": ["style_drift", "object_retention"],
+      "turns": [
+        {"instruction": "Generate a small castle on a hill.", "checklist": [{"id": "castle_exists", "question": "Is there a small castle on a hill?", "target": "yes", "type": "object", "source": "current", "critical": true, "drift_type": "object_retention"}]},
+        {"instruction": "Make it pixel art style.", "checklist": [{"id": "castle_exists", "question": "Is there a small castle on a hill?", "target": "yes", "type": "object", "source": "history", "critical": true, "drift_type": "object_retention"}, {"id": "pixel_art", "question": "Does the image use pixel art style?", "target": "yes", "type": "style", "source": "current", "critical": true, "drift_type": "style_drift"}]},
+        {"instruction": "Add a dragon flying above the castle.", "checklist": [{"id": "castle_exists", "question": "Is there a small castle on a hill?", "target": "yes", "type": "object", "source": "history", "critical": true, "drift_type": "object_retention"}, {"id": "pixel_art", "question": "Does the image use pixel art style?", "target": "yes", "type": "style", "source": "history", "critical": true, "drift_type": "style_drift"}, {"id": "dragon_above", "question": "Is there a dragon flying above the castle?", "target": "yes", "type": "spatial", "source": "current", "critical": true, "drift_type": "spatial_relation"}]},
+        {"instruction": "Change the sky to stormy clouds, preserving the pixel art style.", "checklist": [{"id": "castle_exists", "question": "Is there a small castle on a hill?", "target": "yes", "type": "object", "source": "history", "critical": true, "drift_type": "object_retention"}, {"id": "pixel_art", "question": "Does the image use pixel art style?", "target": "yes", "type": "style", "source": "history", "critical": true, "drift_type": "style_drift"}, {"id": "dragon_above", "question": "Is there a dragon flying above the castle?", "target": "yes", "type": "spatial", "source": "history", "critical": true, "drift_type": "spatial_relation"}, {"id": "stormy_clouds", "question": "Does the image show stormy clouds in the sky?", "target": "yes", "type": "scene", "source": "current", "critical": false, "drift_type": "scene_drift"}]}
+      ]
+    },
+    {
+      "case_id": "chef_pizza_no_text",
+      "description": "Negative constraint and object retention.",
+      "drift_types": ["negative_constraint", "object_retention"],
+      "turns": [
+        {"instruction": "Generate a chef holding a pizza in a kitchen.", "checklist": [{"id": "chef_exists", "question": "Is there a chef holding a pizza?", "target": "yes", "type": "object", "source": "current", "critical": true, "drift_type": "object_retention"}, {"id": "kitchen", "question": "Does the image show a kitchen?", "target": "yes", "type": "scene", "source": "current", "critical": false, "drift_type": "scene_drift"}]},
+        {"instruction": "Make the chef smile.", "checklist": [{"id": "chef_exists", "question": "Is there a chef holding a pizza?", "target": "yes", "type": "object", "source": "history", "critical": true, "drift_type": "object_retention"}, {"id": "chef_smile", "question": "Is the chef smiling?", "target": "yes", "type": "attribute", "source": "current", "critical": false, "drift_type": "attribute_drift"}]},
+        {"instruction": "Do not include any readable text or logo.", "checklist": [{"id": "chef_exists", "question": "Is there a chef holding a pizza?", "target": "yes", "type": "object", "source": "history", "critical": true, "drift_type": "object_retention"}, {"id": "chef_smile", "question": "Is the chef smiling?", "target": "yes", "type": "attribute", "source": "history", "critical": false, "drift_type": "attribute_drift"}, {"id": "no_text_logo", "question": "Does the image contain readable text or a logo?", "target": "no", "type": "negative_constraint", "source": "current", "critical": true, "drift_type": "negative_constraint"}]},
+        {"instruction": "Change the kitchen to an outdoor food truck, keeping the pizza.", "checklist": [{"id": "chef_exists", "question": "Is there a chef holding a pizza?", "target": "yes", "type": "object", "source": "history", "critical": true, "drift_type": "object_retention"}, {"id": "chef_smile", "question": "Is the chef smiling?", "target": "yes", "type": "attribute", "source": "history", "critical": false, "drift_type": "attribute_drift"}, {"id": "no_text_logo", "question": "Does the image contain readable text or a logo?", "target": "no", "type": "negative_constraint", "source": "history", "critical": true, "drift_type": "negative_constraint"}, {"id": "food_truck", "question": "Does the image show an outdoor food truck setting?", "target": "yes", "type": "scene", "source": "current", "critical": false, "drift_type": "scene_drift"}]}
+      ]
+    },
+    {
+      "case_id": "chair_lamp_minimal",
+      "description": "Minimal style and spatial relation retention.",
+      "drift_types": ["style_drift", "spatial_relation"],
+      "turns": [
+        {"instruction": "Generate a wooden chair beside a floor lamp.", "checklist": [{"id": "chair_lamp", "question": "Is there a wooden chair beside a floor lamp?", "target": "yes", "type": "spatial", "source": "current", "critical": true, "drift_type": "spatial_relation"}]},
+        {"instruction": "Use a minimalist interior design style.", "checklist": [{"id": "chair_lamp", "question": "Is there a wooden chair beside a floor lamp?", "target": "yes", "type": "spatial", "source": "history", "critical": true, "drift_type": "spatial_relation"}, {"id": "minimalist", "question": "Does the image use a minimalist interior design style?", "target": "yes", "type": "style", "source": "current", "critical": true, "drift_type": "style_drift"}]},
+        {"instruction": "Add a blue rug under the chair.", "checklist": [{"id": "chair_lamp", "question": "Is there a wooden chair beside a floor lamp?", "target": "yes", "type": "spatial", "source": "history", "critical": true, "drift_type": "spatial_relation"}, {"id": "minimalist", "question": "Does the image use a minimalist interior design style?", "target": "yes", "type": "style", "source": "history", "critical": true, "drift_type": "style_drift"}, {"id": "blue_rug", "question": "Is there a blue rug under the chair?", "target": "yes", "type": "spatial", "source": "current", "critical": true, "drift_type": "spatial_relation"}]},
+        {"instruction": "Change the wall color to pale green while keeping the chair, lamp, and rug positions.", "checklist": [{"id": "chair_lamp", "question": "Is there a wooden chair beside a floor lamp?", "target": "yes", "type": "spatial", "source": "history", "critical": true, "drift_type": "spatial_relation"}, {"id": "minimalist", "question": "Does the image use a minimalist interior design style?", "target": "yes", "type": "style", "source": "history", "critical": true, "drift_type": "style_drift"}, {"id": "blue_rug", "question": "Is there a blue rug under the chair?", "target": "yes", "type": "spatial", "source": "history", "critical": true, "drift_type": "spatial_relation"}, {"id": "pale_green_wall", "question": "Are the walls pale green?", "target": "yes", "type": "attribute", "source": "current", "critical": false, "drift_type": "attribute_drift"}]}
+      ]
+    },
+    {
+      "case_id": "fox_scarf_conflict",
+      "description": "Explicit attribute replacement and history cleanup.",
+      "drift_types": ["conflict_update", "attribute_drift"],
+      "turns": [
+        {"instruction": "Generate a fox standing in autumn leaves.", "checklist": [{"id": "fox_exists", "question": "Is there a fox as the main subject?", "target": "yes", "type": "object", "source": "current", "critical": true, "drift_type": "object_retention"}, {"id": "autumn_leaves", "question": "Does the image show autumn leaves?", "target": "yes", "type": "scene", "source": "current", "critical": false, "drift_type": "scene_drift"}]},
+        {"instruction": "Make the fox wear a red scarf.", "checklist": [{"id": "fox_exists", "question": "Is there a fox as the main subject?", "target": "yes", "type": "object", "source": "history", "critical": true, "drift_type": "object_retention"}, {"id": "red_scarf", "question": "Is the fox visibly wearing a red scarf?", "target": "yes", "type": "attribute", "source": "current", "critical": true, "drift_type": "attribute_drift"}]},
+        {"instruction": "Change the scarf to a blue scarf.", "checklist": [{"id": "fox_exists", "question": "Is there a fox as the main subject?", "target": "yes", "type": "object", "source": "history", "critical": true, "drift_type": "object_retention"}, {"id": "blue_scarf", "question": "Is the fox visibly wearing a blue scarf?", "target": "yes", "type": "attribute", "source": "current", "critical": true, "drift_type": "conflict_update"}, {"id": "no_red_scarf", "question": "Is the fox still wearing a red scarf?", "target": "no", "type": "negative_constraint", "source": "current", "critical": true, "drift_type": "conflict_update"}]},
+        {"instruction": "Add light snow, keeping the blue scarf.", "checklist": [{"id": "fox_exists", "question": "Is there a fox as the main subject?", "target": "yes", "type": "object", "source": "history", "critical": true, "drift_type": "object_retention"}, {"id": "blue_scarf", "question": "Is the fox visibly wearing a blue scarf?", "target": "yes", "type": "attribute", "source": "history", "critical": true, "drift_type": "attribute_drift"}, {"id": "no_red_scarf", "question": "Is the fox still wearing a red scarf?", "target": "no", "type": "negative_constraint", "source": "history", "critical": true, "drift_type": "conflict_update"}, {"id": "light_snow", "question": "Does the image show light snow?", "target": "yes", "type": "scene", "source": "current", "critical": false, "drift_type": "scene_drift"}]}
+      ]
+    }
+  ]
+}

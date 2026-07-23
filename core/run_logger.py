@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from core import database
 from core.schema import json_dumps
 
 
@@ -72,6 +73,20 @@ class RunLogger:
                 "evaluation_path": str((directory / "evaluation.json").relative_to(ROOT)),
             },
         )
+        database.save_turn(
+            run_id=self.run_id,
+            run_dir=self.run_dir,
+            turn_index=turn_index,
+            instruction=instruction,
+            delta=delta,
+            memory=memory,
+            prompt_positive=prompt_positive,
+            prompt_negative=prompt_negative,
+            checklist=checklist,
+            evaluation=evaluation,
+            image_path=image_path,
+            api_summary=api_summary,
+        )
 
     def save_error(self, turn_index: int, stage: str, error: Exception) -> None:
         self.save_json(
@@ -83,6 +98,7 @@ class RunLogger:
                 "message": str(error),
             },
         )
+        database.save_error(self.run_id, turn_index, stage, error)
 
 
 def summarize_api_response(response: Dict[str, Any]) -> Dict[str, Any]:
@@ -96,4 +112,3 @@ def summarize_api_response(response: Dict[str, Any]) -> Dict[str, Any]:
     if "choices" in response:
         summary["choices_count"] = len(response.get("choices", []))
     return summary
-

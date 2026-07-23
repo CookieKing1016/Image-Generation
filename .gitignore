@@ -3,6 +3,10 @@
 __pycache__/
 *.pyc
 .DS_Store
+.swift-module-cache/
+docs/
 outputs/runs/*
 !outputs/runs/.gitkeep
-
+outputs/benchmarks/*
+outputs/*.sqlite3
+outputs/*.sqlite3-*

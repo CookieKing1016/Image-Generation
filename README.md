@@ -51,6 +51,82 @@ outputs/runs/<run_id>/turn_XX/
 
 Each turn directory contains `memory.json`, `prompt.txt`, `checklist.json`, `evaluation.json`, `delta.json`, `api_responses.json`, `turn_log.json`, and `image.png`.
 
+The app also writes searchable run metadata to:
+
+```text
+outputs/mem2image.sqlite3
+```
+
+Images and raw per-turn artifacts stay in `outputs/runs/`; SQLite stores paths,
+scores, prompts, JSON payloads, and checklist item results for filtering,
+dashboarding, and bad-case analysis.
+
+To import existing file-based runs into SQLite:
+
+```bash
+python3 scripts/import_runs.py
+```
+
+## SQLite Backend
+
+The lightweight backend uses these tables:
+
+- `runs`: one row per multi-turn run, with `run_id`, method, case id, and run directory.
+- `turns`: one row per turn, with instruction, image path, prompts, score, failed count, and JSON snapshots.
+- `checklist_items`: one row per checklist item, joined with VLM answers and pass/fail status.
+- `errors`: parser, image generation, or evaluator failures.
+
+This keeps the prototype simple: the filesystem remains the artifact store, and
+SQLite becomes the query layer for historical analysis.
+
+## First-Round Benchmark
+
+The first benchmark set is defined in:
+
+```text
+data/benchmark.json
+```
+
+It contains 10 cases with 4 turns each. Every turn includes an evaluation
+checklist with `source` labels (`current` or `history`) and drift categories.
+
+Run a no-API smoke test:
+
+```bash
+python3 scripts/run_benchmark.py --dry-run --methods current-only full-history --case-limit 1
+```
+
+Run the first real comparison after setting `SILICONFLOW_API_KEY`:
+
+```bash
+python3 scripts/run_benchmark.py \
+  --methods current-only full-history structured-memory
+```
+
+Summarize method-level metrics:
+
+```bash
+python3 scripts/summarize_benchmark.py
+```
+
+First-round methods:
+
+- `current-only`: uses only the current user instruction.
+- `full-history`: concatenates all instructions so far.
+- `structured-memory`: uses the project Visual Intent Memory pipeline.
+
+First-round metrics:
+
+- `avg_checklist_score`: mean of per-turn checklist scores. Each turn score is passed checklist items divided by all checklist items.
+- `history_retention_rate`: v2-style per-turn preservation score. For each turn, score historical/cumulative items (`source=history`, or legacy items whose type is not `current_turn`) as passed history items divided by all history items; if a turn has no history item, it counts as `1.0`. The method score is the mean across turns.
+- `current_turn_success_rate`: v2-style per-turn binary success. For each turn, all current items (`source=current` or `type=current_turn`) must pass; otherwise the turn counts as `0.0`. If a turn has no current item, it counts as `1.0`. The method score is the fraction of successful turns.
+- `critical_success_rate`: pass rate over checklist items marked `critical=true`.
+- `drift_count`: number of failed checklist items.
+
+This follows the v2 evaluation idea: first judge each visual checklist item with
+the VLM, then separate cumulative-intent retention from current-turn success
+before aggregating by method.
+
 ## Validate Local Logic
 
 These tests do not call external APIs:

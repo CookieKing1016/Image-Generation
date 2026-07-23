@@ -31,6 +31,7 @@ Rules:
 - Answer only from visible image evidence.
 - For each item, passed is true only when answer matches target.
 - checklist_score is passed item count divided by total item count.
+- Include drift_type/source/critical metadata from checklist when available.
 - Do not include commentary outside JSON.
 """
 
@@ -69,10 +70,12 @@ def normalize_evaluation(raw: Dict[str, Any], checklist: List[Dict[str, Any]]) -
         item_id = str(raw_item.get("id", ""))
         expected = expected_by_id.get(item_id, {})
         target = str(raw_item.get("target") or expected.get("target", "yes")).lower()
-        answer = str(raw_item.get("answer", "")).lower()
+        answer = _normalize_answer(raw_item.get("answer"))
         passed = raw_item.get("passed")
         if not isinstance(passed, bool):
             passed = answer == target
+        if answer == "unknown":
+            passed = False
         items.append(
             {
                 "id": item_id,
@@ -83,6 +86,9 @@ def normalize_evaluation(raw: Dict[str, Any], checklist: List[Dict[str, Any]]) -
                 "confidence": _float_or_zero(raw_item.get("confidence")),
                 "reason": str(raw_item.get("reason", "")),
                 "type": expected.get("type", raw_item.get("type", "")),
+                "source": expected.get("source", raw_item.get("source", "")),
+                "critical": bool(expected.get("critical", raw_item.get("critical", False))),
+                "drift_type": expected.get("drift_type", raw_item.get("drift_type", "")),
             }
         )
 
@@ -99,6 +105,9 @@ def normalize_evaluation(raw: Dict[str, Any], checklist: List[Dict[str, Any]]) -
                     "confidence": 0.0,
                     "reason": "The evaluator did not answer this item.",
                     "type": expected["type"],
+                    "source": expected.get("source", ""),
+                    "critical": bool(expected.get("critical", False)),
+                    "drift_type": expected.get("drift_type", ""),
                 }
             )
 
@@ -115,12 +124,21 @@ def normalize_evaluation(raw: Dict[str, Any], checklist: List[Dict[str, Any]]) -
         "items": items,
         "checklist_score": round(score, 4),
         "failed_items": failed_items,
+        "drift_count": len(failed_items),
+        "drift_types": sorted({item["drift_type"] for item in items if not item["passed"] and item.get("drift_type")}),
         "summary": str(raw.get("summary", "")),
     }
 
 
+def _normalize_answer(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if text in {"yes", "no"}:
+        return text
+    return "unknown"
+
+
 def _float_or_zero(value: Any) -> float:
     try:
-        return float(value)
+        return max(0.0, min(1.0, float(value)))
     except (TypeError, ValueError):
         return 0.0
