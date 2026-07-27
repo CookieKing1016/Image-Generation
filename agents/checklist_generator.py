@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import re
+import hashlib
 from typing import Any, Dict, List
 
 from core.schema import normalize_memory
 
 
 class ChecklistGenerator:
-    def generate(self, memory: Dict[str, Any]) -> List[Dict[str, str]]:
+    def generate(self, memory: Dict[str, Any]) -> List[Dict[str, Any]]:
         memory = normalize_memory(memory)
-        items: List[Dict[str, str]] = []
+        items: List[Dict[str, Any]] = []
 
         for subject in memory["main_subjects"]:
             name = _object_name(subject)
@@ -66,17 +67,39 @@ class ChecklistGenerator:
             items.append(_item(f"constraint_{idx}", f"Is this preserved: {constraint}?", "yes", "constraint"))
 
         for idx, constraint in enumerate(memory["negative_constraints"], 1):
-            items.append(_item(f"negative_{idx}", f"Does the image contain this disallowed element: {constraint}?", "no", "negative_constraint"))
+            is_superseded = str(constraint).startswith("The superseded visual attribute must not remain visible:")
+            items.append(
+                _item(
+                    f"negative_{idx}",
+                    f"Does the image contain this disallowed element: {constraint}?",
+                    "no",
+                    "negative_constraint",
+                    source="history" if is_superseded else "",
+                    critical=is_superseded,
+                    drift_type="old_attribute_residual" if is_superseded else "",
+                )
+            )
 
         return _dedupe_by_question(items)
 
 
-def _item(item_id: str, question: str, target: str, item_type: str) -> Dict[str, str]:
+def _item(
+    item_id: str,
+    question: str,
+    target: str,
+    item_type: str,
+    source: str = "",
+    critical: bool = False,
+    drift_type: str = "",
+) -> Dict[str, Any]:
     return {
         "id": _slug(item_id),
         "question": question,
         "target": target,
         "type": item_type,
+        "source": source,
+        "critical": critical,
+        "drift_type": drift_type,
     }
 
 
@@ -95,10 +118,17 @@ def _as_list(value: Any) -> List[str]:
 
 
 def _slug(value: str) -> str:
-    return re.sub(r"[^a-zA-Z0-9_]+", "_", value).strip("_").lower()
+    text = str(value)
+    slug = re.sub(r"[^a-zA-Z0-9_]+", "_", text).strip("_").lower()
+    # Keep IDs readable for English while preventing Chinese/non-ASCII items
+    # from collapsing to the same empty or partial slug in SQLite.
+    if not slug or any(ord(char) > 127 for char in text):
+        digest = hashlib.sha1(text.encode("utf-8")).hexdigest()[:10]
+        slug = f"{slug or 'item'}_{digest}"
+    return slug
 
 
-def _dedupe_by_question(items: List[Dict[str, str]]) -> List[Dict[str, str]]:
+def _dedupe_by_question(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     result = []
     known = set()
     for item in items:
@@ -107,4 +137,3 @@ def _dedupe_by_question(items: List[Dict[str, str]]) -> List[Dict[str, str]]:
             result.append(item)
             known.add(key)
     return result
-

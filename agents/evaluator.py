@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import Any, Dict, List
 
 from core.schema import extract_json_object, json_dumps
-from tools.siliconflow_client import SiliconFlowClient, first_message_text
+from tools.siliconflow_client import SiliconFlowClient, SiliconFlowError, first_message_text
 
 
 EVALUATOR_PROMPT = """You are the VLM Evaluator for Mem2Image.
@@ -37,8 +38,10 @@ Rules:
 
 
 class ChecklistEvaluator:
-    def __init__(self, client: SiliconFlowClient):
+    def __init__(self, client: SiliconFlowClient, max_retries: int = 2, retry_delay_seconds: float = 1.0):
         self.client = client
+        self.max_retries = max(0, max_retries)
+        self.retry_delay_seconds = max(0.0, retry_delay_seconds)
 
     def evaluate(
         self,
@@ -56,9 +59,37 @@ class ChecklistEvaluator:
             "Checklist:\n"
             f"{json_dumps(checklist)}"
         )
-        response = self.client.vision_completion(request_prompt, image_path)
-        parsed = extract_json_object(first_message_text(response))
-        return normalize_evaluation(parsed, checklist)
+        last_error: SiliconFlowError | None = None
+        for attempt in range(self.max_retries + 1):
+            try:
+                response = self.client.vision_completion(request_prompt, image_path)
+                parsed = extract_json_object(first_message_text(response))
+                evaluation = normalize_evaluation(parsed, checklist)
+                evaluation["evaluation_attempts"] = attempt + 1
+                return evaluation
+            except SiliconFlowError as exc:
+                last_error = exc
+                if attempt >= self.max_retries or not _is_transient_vlm_error(str(exc)):
+                    raise
+                time.sleep(self.retry_delay_seconds * (attempt + 1))
+        assert last_error is not None
+        raise last_error
+
+
+def _is_transient_vlm_error(message: str) -> bool:
+    lowered = message.lower()
+    tokens = (
+        "remote end closed",
+        "connection failed",
+        "timed out",
+        "timeout",
+        "http 429",
+        "http 500",
+        "http 502",
+        "http 503",
+        "http 504",
+    )
+    return any(token in lowered for token in tokens)
 
 
 def normalize_evaluation(raw: Dict[str, Any], checklist: List[Dict[str, Any]]) -> Dict[str, Any]:

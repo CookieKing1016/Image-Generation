@@ -23,6 +23,30 @@ COLOR_WORDS = {
     "white",
     "yellow",
 }
+COLOR_ALIASES = {
+    "deep burgundy": "deep_burgundy",
+    "burgundy": "burgundy",
+    "深酒红色": "deep_burgundy",
+    "酒红色": "burgundy",
+    "黑色": "black",
+    "蓝白色": "blue_white",
+    "蓝色": "blue",
+    "红色": "red",
+    "白色": "white",
+    "绿色": "green",
+    "黄色": "yellow",
+    "紫色": "purple",
+    "金色": "gold",
+    "银色": "silver",
+}
+PART_ALIASES = {
+    "ribbon": ("ribbon", "bow", "缎带", "丝带", "蝴蝶结"),
+    "scarf": ("scarf", "围巾"),
+    "collar": ("collar", "项圈"),
+    "cap": ("cap", "lid", "瓶盖", "盖子"),
+    "label": ("label", "标签"),
+    "packaging": ("packaging", "package", "包装", "瓶身", "袋身"),
+}
 MATERIAL_WORDS = {
     "ceramic",
     "glass",
@@ -41,14 +65,19 @@ class MemoryUpdater:
     def update(self, memory: Dict[str, Any], delta: Dict[str, Any], instruction: str) -> Dict[str, Any]:
         next_memory = normalize_memory(memory)
         normalized_delta = normalize_delta(delta)
+        turn_number = len(next_memory["turn_history"]) + 1
 
         self._apply_section(next_memory, normalized_delta.get("add", {}), mode="add")
-        self._apply_section(next_memory, normalized_delta.get("update", {}), mode="update")
-        self._apply_removals(next_memory, normalized_delta.get("remove", {}))
+        superseded = self._apply_section(next_memory, normalized_delta.get("update", {}), mode="update")
+        self._coalesce_structured_attribute_entities(next_memory, normalized_delta)
+        self._apply_removals(next_memory, normalized_delta.get("remove", {}), turn_number)
         self._resolve_conflicts(next_memory, normalized_delta)
+        self._apply_superseded_constraints(next_memory, superseded)
 
         if normalized_delta.get("current_turn_goal"):
             next_memory["current_turn_goal"] = normalized_delta["current_turn_goal"]
+
+        self._annotate_entities(next_memory, turn_number)
 
         next_memory["turn_history"].append(
             {
@@ -60,13 +89,109 @@ class MemoryUpdater:
         )
         return normalize_memory(next_memory)
 
-    def _apply_section(self, memory: Dict[str, Any], section: Dict[str, Any], mode: str) -> None:
-        if not isinstance(section, dict):
+    @staticmethod
+    def _coalesce_structured_attribute_entities(memory: Dict[str, Any], delta: Dict[str, Any]) -> None:
+        """Remove duplicate component entities created alongside a structured update.
+
+        Intent extraction may emit both ``update bottle.ribbon`` and ``add red bow``
+        for one replacement. The component must remain an attribute of the bottle,
+        otherwise prompt composition and mask planning treat it as a second object.
+        """
+        updates = [
+            item
+            for section in ("main_subjects", "objects")
+            for item in ensure_list(delta.get("update", {}).get(section))
+            if isinstance(item, dict) and (item.get("attribute_states") or item.get("attribute_slots"))
+        ]
+        if not updates:
             return
+        component_markers = ("ribbon", "bow", "缎带", "丝带", "蝴蝶结", "scarf", "围巾", "collar", "项圈")
+        for collection in ("main_subjects", "objects"):
+            retained = []
+            for candidate in memory[collection]:
+                name = _object_name(candidate).lower()
+                if not any(marker in name for marker in component_markers):
+                    retained.append(candidate)
+                    continue
+                candidate_slots = _attribute_slots([name] + ensure_list(candidate.get("attributes")))
+                matched = False
+                for update in updates:
+                    update_slots = _attribute_slots(ensure_list(update.get("attributes")))
+                    if any(slot.startswith("part:ribbon:") and values & candidate_slots.get(slot, set()) for slot, values in update_slots.items()):
+                        matched = True
+                        break
+                    if any(marker in " ".join(str(value).lower() for value in ensure_list(update.get("attributes"))) for marker in component_markers):
+                        if candidate_slots.get("color") and candidate_slots["color"] & set().union(*update_slots.values()):
+                            matched = True
+                            break
+                if not matched:
+                    retained.append(candidate)
+            memory[collection] = retained
+
+    @staticmethod
+    def _annotate_entities(memory: Dict[str, Any], turn_number: int) -> None:
+        """Expose active visual state and provenance without changing prompts."""
+        for collection in ("main_subjects", "objects"):
+            for entity in memory[collection]:
+                if not isinstance(entity, dict):
+                    continue
+                entity["status"] = "active"
+                provenance = entity.setdefault("provenance", [])
+                if not provenance:
+                    provenance.append(turn_number)
+                states = entity.setdefault("attribute_states", {})
+                active_attributes = {str(attribute).strip() for attribute in ensure_list(entity.get("attributes")) if str(attribute).strip()}
+                for attribute in active_attributes:
+                    key = str(attribute).strip()
+                    if key and key not in states:
+                        states[key] = {"status": "active", "updated_at_turn": turn_number}
+                for attribute, state in states.items():
+                    if attribute not in active_attributes and state.get("status") == "active":
+                        state["status"] = "superseded"
+                        state["superseded_at_turn"] = turn_number
+                    elif attribute in active_attributes:
+                        state["status"] = "active"
+                slot_states = entity.setdefault("attribute_slots", {})
+                active_slots = _attribute_slots(active_attributes)
+                for slot, values in active_slots.items():
+                    normalized_values = sorted(values)
+                    previous = slot_states.get(slot)
+                    if previous and previous.get("value") != normalized_values:
+                        history = list(previous.get("history", []))
+                        history.append(
+                            {
+                                "value": previous.get("value", []),
+                                "source_attribute": previous.get("source_attribute", ""),
+                                "status": "superseded",
+                                "superseded_at_turn": turn_number,
+                            }
+                        )
+                    else:
+                        history = list(previous.get("history", [])) if previous else []
+                    source_attribute = next(
+                        (
+                            attribute
+                            for attribute in active_attributes
+                            if slot in _attribute_slots([attribute])
+                        ),
+                        "",
+                    )
+                    slot_states[slot] = {
+                        "value": normalized_values,
+                        "source_attribute": source_attribute,
+                        "status": "active",
+                        "updated_at_turn": turn_number,
+                        "history": history,
+                    }
+
+    def _apply_section(self, memory: Dict[str, Any], section: Dict[str, Any], mode: str) -> List[str]:
+        superseded: List[str] = []
+        if not isinstance(section, dict):
+            return superseded
 
         for key in ("main_subjects", "objects"):
             if key in section:
-                self._merge_object_list(memory[key], ensure_list(section[key]), mode=mode)
+                superseded.extend(self._merge_object_list(memory[key], ensure_list(section[key]), mode=mode))
 
         for key in ("scene", "style"):
             if isinstance(section.get(key), dict):
@@ -84,8 +209,10 @@ class MemoryUpdater:
         for direct_style_key in ("visual_style", "color_palette", "medium"):
             if direct_style_key in section:
                 memory["style"][direct_style_key] = section[direct_style_key]
+        return superseded
 
-    def _merge_object_list(self, target: List[Any], incoming: Iterable[Any], mode: str) -> None:
+    def _merge_object_list(self, target: List[Any], incoming: Iterable[Any], mode: str) -> List[str]:
+        superseded: List[str] = []
         for item in incoming:
             normalized = _normalize_object(item)
             if not normalized:
@@ -99,7 +226,7 @@ class MemoryUpdater:
                     target.append(normalized)
                     continue
                 for existing in matches:
-                    _merge_object_fields(existing, normalized, mode=mode)
+                    superseded.extend(_merge_object_fields(existing, normalized, mode=mode))
                 continue
 
             existing = _find_object(target, name)
@@ -110,9 +237,26 @@ class MemoryUpdater:
                 target.append(normalized)
                 continue
 
-            _merge_object_fields(existing, normalized, mode=mode)
+            superseded.extend(_merge_object_fields(existing, normalized, mode=mode))
+        return superseded
 
-    def _apply_removals(self, memory: Dict[str, Any], removals: Dict[str, Any]) -> None:
+    def _apply_superseded_constraints(self, memory: Dict[str, Any], superseded: Iterable[str]) -> None:
+        stale = [str(value).strip() for value in superseded if str(value).strip()]
+        if not stale:
+            return
+        stale_slots = _attribute_slots(stale)
+        memory["constraints"] = [
+            item
+            for item in memory["constraints"]
+            if not any(_shares_slot_value(str(item), value) for value in stale)
+        ]
+        for value in stale:
+            self._extend_unique_strings(
+                memory["negative_constraints"],
+                [f"The superseded visual attribute must not remain visible: {value}."],
+            )
+
+    def _apply_removals(self, memory: Dict[str, Any], removals: Dict[str, Any], turn_number: int) -> None:
         if not isinstance(removals, dict):
             return
 
@@ -132,6 +276,11 @@ class MemoryUpdater:
                 ]
                 for removed in removed_items:
                     name = _object_name(removed)
+                    if isinstance(removed, dict):
+                        tombstone = deepcopy(removed)
+                        tombstone["status"] = "deleted"
+                        tombstone["deleted_at_turn"] = turn_number
+                        memory["deleted_entities"].append(tombstone)
                     _remove_related_constraints(memory["constraints"], name)
                     _remove_related_constraints(memory["negative_constraints"], name)
                     self._extend_unique_strings(memory["negative_constraints"], _negative_constraints_for_removed_object(name))
@@ -318,10 +467,22 @@ def _should_append_distinct_instance(existing: Dict[str, Any], incoming: Dict[st
     return bool(incoming_position and existing_position and incoming_position != existing_position)
 
 
-def _merge_object_fields(existing: Dict[str, Any], normalized: Dict[str, Any], mode: str) -> None:
+def _merge_object_fields(existing: Dict[str, Any], normalized: Dict[str, Any], mode: str) -> List[str]:
+    superseded: List[str] = []
+    structured_states = normalized.get("attribute_states")
+    if mode == "update" and isinstance(structured_states, dict):
+        active = [name for name, state in structured_states.items() if isinstance(state, dict) and state.get("status") == "active"]
+        if active:
+            existing["attributes"], removed = _merge_attributes(existing.get("attributes", []), active, mode="update")
+            superseded.extend(removed)
+            existing["name"] = _rewrite_name_for_attributes(_object_name(existing), existing["attributes"])
     for field, value in normalized.items():
+        if field in {"attribute_states", "attribute_slots"}:
+            existing[field] = deepcopy(value)
+            continue
         if field == "attributes":
-            existing[field] = _merge_attributes(existing.get(field, []), ensure_list(value), mode=mode)
+            existing[field], removed = _merge_attributes(existing.get(field, []), ensure_list(value), mode=mode)
+            superseded.extend(removed)
             existing["name"] = _rewrite_name_for_attributes(_object_name(existing), existing[field])
         elif field == "must_preserve":
             existing[field] = bool(value) or bool(existing.get(field))
@@ -329,14 +490,18 @@ def _merge_object_fields(existing: Dict[str, Any], normalized: Dict[str, Any], m
             existing[field] = _rewrite_name_for_attributes(str(value), normalized.get("attributes", []))
         elif value not in (None, "", [], {}):
             existing[field] = value
+    return superseded
 
 
-def _merge_attributes(existing: Any, incoming: Iterable[Any], mode: str) -> List[Any]:
+def _merge_attributes(existing: Any, incoming: Iterable[Any], mode: str) -> tuple[List[Any], List[str]]:
     incoming_list = [str(item).strip() for item in incoming if str(item).strip()]
     base = ensure_list(existing)
+    removed: List[str] = []
     if mode == "update":
-        base = _remove_conflicting_attributes(base, incoming_list)
-    return _merge_unique(base, incoming_list)
+        filtered = _remove_conflicting_attributes(base, incoming_list)
+        removed = [str(item).strip() for item in base if str(item).strip() and item not in filtered]
+        base = filtered
+    return _merge_unique(base, incoming_list), removed
 
 
 def _remove_conflicting_attributes(existing: Iterable[Any], incoming: Iterable[str]) -> List[Any]:
@@ -376,24 +541,56 @@ def _attribute_conflicts(attribute: str, incoming_slots: Dict[str, set[str]]) ->
     return False
 
 
+def _shares_slot_value(left: str, right: str) -> bool:
+    left_slots = _attribute_slots([left])
+    right_slots = _attribute_slots([right])
+    for slot in set(left_slots) & set(right_slots):
+        if left_slots[slot] & right_slots[slot]:
+            return True
+    return False
+
+
 def _attribute_slots(attributes: Iterable[str]) -> Dict[str, set[str]]:
     slots: Dict[str, set[str]] = {}
     for attr in attributes:
         lowered = str(attr).lower()
         words = set(re.findall(r"[a-z]+", lowered))
         colors = words & COLOR_WORDS
+        matched_aliases = [alias for alias in COLOR_ALIASES if alias in lowered]
+        if matched_aliases:
+            most_specific = [
+                alias
+                for alias in matched_aliases
+                if not any(alias != other and alias in other for other in matched_aliases)
+            ]
+            colors = {COLOR_ALIASES[alias] for alias in most_specific}
         materials = words & MATERIAL_WORDS
         wearables = words & WEARABLE_WORDS
         if colors:
             key = "color"
-            if wearables:
+            part = _attribute_part(lowered)
+            if part:
+                key = "part:" + part + ":color"
+            elif wearables:
                 key = "wearable:" + sorted(wearables)[0]
             elif "petal" in words or "flower" in words:
                 key = "flower_color"
             slots.setdefault(key, set()).update(colors)
         if materials:
-            slots.setdefault("material", set()).update(materials)
+            part = _attribute_part(lowered)
+            key = "part:" + part + ":material" if part else "material"
+            slots.setdefault(key, set()).update(materials)
+        explicit = re.match(r"\s*([a-z_][a-z0-9_.-]*)\s*:\s*(.+)", lowered)
+        if explicit:
+            slots.setdefault("explicit:" + explicit.group(1), set()).add(explicit.group(2).strip())
     return slots
+
+
+def _attribute_part(text: str) -> str:
+    for canonical, aliases in PART_ALIASES.items():
+        if any(alias in text for alias in aliases):
+            return canonical
+    return ""
 
 
 def _merge_unique(existing: Any, incoming: Iterable[Any]) -> List[Any]:

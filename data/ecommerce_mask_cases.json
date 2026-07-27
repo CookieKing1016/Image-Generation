@@ -1,0 +1,133 @@
+{
+  "name": "ecommerce_product_marketing_mask_v1",
+  "version": 1,
+  "description": "E-commerce product marketing cases for testing product retention, local edits, background replacement, and natural blending.",
+  "cases": [
+    {
+      "case_id": "skincare_ribbon_local_edit",
+      "description": "Change only a small product accessory while retaining the bottle, label, lighting, and studio composition.",
+      "drift_types": ["local_attribute_edit", "product_retention", "boundary_blending"],
+      "evaluation_focus": ["mask_locality", "edge_naturalness", "product_identity"],
+      "turns": [
+        {
+          "instruction": "Generate a premium skincare serum bottle on a warm white studio pedestal, with a black satin ribbon tied around the neck, soft daylight, and a clean luxury e-commerce composition.",
+          "checklist": [
+            {"id": "serum_bottle", "question": "Is there one premium skincare serum bottle as the main product?", "target": "yes", "type": "object", "source": "current", "critical": true, "drift_type": "product_identity"},
+            {"id": "black_ribbon", "question": "Is the bottle decorated with a black satin ribbon?", "target": "yes", "type": "attribute", "source": "current", "critical": true, "drift_type": "local_attribute_edit"},
+            {"id": "luxury_studio", "question": "Does the image look like a clean luxury studio product photo?", "target": "yes", "type": "style", "source": "current", "critical": true, "drift_type": "composition_retention"}
+          ]
+        },
+        {
+          "instruction": "Change only the black ribbon to a deep burgundy ribbon. Keep the serum bottle, label, pedestal, camera angle, shadows, and background unchanged.",
+          "checklist": [
+            {"id": "serum_bottle", "question": "Is the same premium skincare serum bottle still the main product?", "target": "yes", "type": "object", "source": "history", "critical": true, "drift_type": "product_retention"},
+            {"id": "burgundy_ribbon", "question": "Is the ribbon deep burgundy?", "target": "yes", "type": "attribute", "source": "current", "critical": true, "drift_type": "local_attribute_edit"},
+            {"id": "black_ribbon_removed", "question": "Is the old black ribbon no longer visible?", "target": "yes", "type": "negative_constraint", "source": "current", "critical": true, "drift_type": "attribute_conflict"},
+            {"id": "studio_retained", "question": "Are the pedestal, studio background, and product composition retained?", "target": "yes", "type": "scene", "source": "history", "critical": true, "drift_type": "composition_retention"}
+          ]
+        },
+        {
+          "instruction": "Add three small white flowers beside the bottle for a spring campaign, while keeping the bottle, burgundy ribbon, label, and pedestal unchanged.",
+          "checklist": [
+            {"id": "serum_bottle", "question": "Is the same serum bottle retained?", "target": "yes", "type": "object", "source": "history", "critical": true, "drift_type": "product_retention"},
+            {"id": "burgundy_ribbon", "question": "Is the bottle still decorated with the burgundy ribbon?", "target": "yes", "type": "attribute", "source": "history", "critical": true, "drift_type": "attribute_retention"},
+            {"id": "three_flowers", "question": "Are there exactly three small white flowers beside the bottle?", "target": "yes", "type": "counting", "source": "current", "critical": true, "drift_type": "object_addition"},
+            {"id": "label_retained", "question": "Is the product label unchanged and still visible?", "target": "yes", "type": "attribute", "source": "history", "critical": true, "drift_type": "product_retention"}
+          ]
+        },
+        {
+          "instruction": "Remove only the flowers and keep the original serum product marketing composition.",
+          "checklist": [
+            {"id": "serum_bottle", "question": "Is the serum bottle still present and unchanged?", "target": "yes", "type": "object", "source": "history", "critical": true, "drift_type": "product_retention"},
+            {"id": "burgundy_ribbon", "question": "Is the burgundy ribbon still visible?", "target": "yes", "type": "attribute", "source": "history", "critical": true, "drift_type": "attribute_retention"},
+            {"id": "no_flowers", "question": "Are the flowers completely removed?", "target": "yes", "type": "negative_constraint", "source": "current", "critical": true, "drift_type": "object_removal"},
+            {"id": "studio_retained", "question": "Is the clean studio composition retained?", "target": "yes", "type": "scene", "source": "history", "critical": true, "drift_type": "composition_retention"}
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "sneaker_background_campaign",
+      "description": "Replace a marketing background while protecting the sneaker silhouette, color blocking, sole, and contact shadow.",
+      "drift_types": ["background_edit", "product_retention", "mask_boundary"],
+      "evaluation_focus": ["protected_product", "background_completion", "contact_shadow"],
+      "turns": [
+        {
+          "instruction": "Generate a single white and green running sneaker on a light gray studio floor, photographed from a three-quarter side angle for an e-commerce product hero image.",
+          "checklist": [
+            {"id": "sneaker", "question": "Is there one white and green running sneaker as the main product?", "target": "yes", "type": "object", "source": "current", "critical": true, "drift_type": "product_identity"},
+            {"id": "three_quarter_angle", "question": "Is the sneaker shown from a three-quarter side angle?", "target": "yes", "type": "spatial", "source": "current", "critical": true, "drift_type": "product_retention"},
+            {"id": "studio_floor", "question": "Is the sneaker on a light gray studio floor?", "target": "yes", "type": "scene", "source": "current", "critical": true, "drift_type": "background_edit"}
+          ]
+        },
+        {
+          "instruction": "Change only the background to a sunrise city running track. Keep the sneaker shape, white and green colors, sole, camera angle, and contact shadow unchanged.",
+          "checklist": [
+            {"id": "sneaker", "question": "Is the same white and green running sneaker retained?", "target": "yes", "type": "object", "source": "history", "critical": true, "drift_type": "product_retention"},
+            {"id": "sunrise_track", "question": "Is the background a sunrise city running track?", "target": "yes", "type": "scene", "source": "current", "critical": true, "drift_type": "background_edit"},
+            {"id": "sole_retained", "question": "Is the original sole shape retained without distortion?", "target": "yes", "type": "attribute", "source": "history", "critical": true, "drift_type": "product_retention"},
+            {"id": "contact_shadow", "question": "Does the sneaker have a natural contact shadow on the track?", "target": "yes", "type": "attribute", "source": "current", "critical": true, "drift_type": "mask_boundary"}
+          ]
+        },
+        {
+          "instruction": "Add a small black price tag card in the upper-right background, away from the sneaker. Do not alter the sneaker or its shadow.",
+          "checklist": [
+            {"id": "sneaker", "question": "Is the sneaker unchanged?", "target": "yes", "type": "object", "source": "history", "critical": true, "drift_type": "product_retention"},
+            {"id": "price_card", "question": "Is there one small black price tag card in the upper-right background?", "target": "yes", "type": "object", "source": "current", "critical": true, "drift_type": "object_addition"},
+            {"id": "shadow_retained", "question": "Is the sneaker contact shadow retained?", "target": "yes", "type": "attribute", "source": "history", "critical": true, "drift_type": "mask_boundary"}
+          ]
+        },
+        {
+          "instruction": "Remove only the price tag card and restore the clean campaign background, keeping the sneaker exactly the same.",
+          "checklist": [
+            {"id": "sneaker", "question": "Is the sneaker still unchanged?", "target": "yes", "type": "object", "source": "history", "critical": true, "drift_type": "product_retention"},
+            {"id": "no_price_card", "question": "Is the price tag card completely removed?", "target": "yes", "type": "negative_constraint", "source": "current", "critical": true, "drift_type": "object_removal"},
+            {"id": "clean_track", "question": "Is the sunrise running track background clean and coherent?", "target": "yes", "type": "scene", "source": "history", "critical": true, "drift_type": "background_edit"}
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "coffee_packaging_product_swap",
+      "description": "Replace a packaging color while preserving product geometry, typography area, and tabletop styling.",
+      "drift_types": ["packaging_attribute_conflict", "product_geometry", "marketing_style"],
+      "evaluation_focus": ["packaging_locality", "logo_area_retention", "style_consistency"],
+      "turns": [
+        {
+          "instruction": "Generate a matte black specialty coffee bag standing upright on a walnut table, with a blank cream label area, coffee beans nearby, and warm premium editorial lighting.",
+          "checklist": [
+            {"id": "coffee_bag", "question": "Is there one matte black specialty coffee bag as the main product?", "target": "yes", "type": "object", "source": "current", "critical": true, "drift_type": "product_identity"},
+            {"id": "cream_label", "question": "Does the bag have a blank cream label area?", "target": "yes", "type": "attribute", "source": "current", "critical": true, "drift_type": "product_geometry"},
+            {"id": "walnut_table", "question": "Is the product placed on a walnut table with coffee beans nearby?", "target": "yes", "type": "scene", "source": "current", "critical": true, "drift_type": "marketing_style"}
+          ]
+        },
+        {
+          "instruction": "Change only the coffee bag from matte black to deep forest green. Keep the bag shape, cream label area, tabletop, beans, camera angle, and lighting unchanged.",
+          "checklist": [
+            {"id": "green_bag", "question": "Is the coffee bag deep forest green?", "target": "yes", "type": "attribute", "source": "current", "critical": true, "drift_type": "packaging_attribute_conflict"},
+            {"id": "old_black_removed", "question": "Is the old matte black packaging color no longer visible on the bag?", "target": "yes", "type": "negative_constraint", "source": "current", "critical": true, "drift_type": "packaging_attribute_conflict"},
+            {"id": "cream_label", "question": "Is the cream label area retained in the same place?", "target": "yes", "type": "attribute", "source": "history", "critical": true, "drift_type": "product_geometry"},
+            {"id": "beans_retained", "question": "Are the coffee beans and walnut table retained?", "target": "yes", "type": "scene", "source": "history", "critical": true, "drift_type": "marketing_style"}
+          ]
+        },
+        {
+          "instruction": "Remove the loose coffee beans from the table but keep the green bag, label area, walnut table, and warm lighting unchanged.",
+          "checklist": [
+            {"id": "green_bag", "question": "Is the deep forest green coffee bag retained?", "target": "yes", "type": "object", "source": "history", "critical": true, "drift_type": "product_retention"},
+            {"id": "no_beans", "question": "Are the loose coffee beans removed from the table?", "target": "yes", "type": "negative_constraint", "source": "current", "critical": true, "drift_type": "object_removal"},
+            {"id": "walnut_table", "question": "Is the walnut table retained?", "target": "yes", "type": "scene", "source": "history", "critical": true, "drift_type": "marketing_style"}
+          ]
+        },
+        {
+          "instruction": "Add one small green leaf beside the bag as a natural product accent, without changing the bag, label, table, or lighting.",
+          "checklist": [
+            {"id": "green_bag", "question": "Is the coffee bag still deep forest green with the cream label area?", "target": "yes", "type": "object", "source": "history", "critical": true, "drift_type": "product_retention"},
+            {"id": "one_leaf", "question": "Is there exactly one small green leaf beside the bag?", "target": "yes", "type": "counting", "source": "current", "critical": true, "drift_type": "object_addition"},
+            {"id": "no_beans", "question": "Are there still no loose coffee beans on the table?", "target": "yes", "type": "negative_constraint", "source": "history", "critical": true, "drift_type": "object_removal"},
+            {"id": "label_retained", "question": "Is the label area and bag geometry unchanged?", "target": "yes", "type": "attribute", "source": "history", "critical": true, "drift_type": "product_geometry"}
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,8 +1,11 @@
 # Mem2Image
 
-First-stage course prototype for a training-free, multi-turn text-to-image agent with explicit Visual Intent Memory.
+Training-free, multi-turn image generation and editing agent with explicit Visual Intent Memory.
 
-This stage only supports T2I regeneration. Each turn updates a structured memory, composes a generation prompt, calls SiliconFlow image generation, then asks a VLM to evaluate a memory-derived checklist.
+The first turn uses text-to-image generation. Later turns resolve memory
+conflicts, plan edit tasks, build one mask per task, and route to reference
+editing or native inpainting. Benchmark mode evaluates a memory-derived
+checklist and can retry failed edits.
 
 ## Setup
 
@@ -28,7 +31,39 @@ If SiliconFlow returns `Model disabled`, replace the corresponding model in
 LLM_MODEL=Qwen/Qwen3-30B-A3B-Instruct-2507
 VLM_MODEL=Qwen/Qwen3-VL-32B-Instruct
 IMAGE_MODEL=Kwai-Kolors/Kolors
+IMAGE_EDIT_MODEL=Qwen/Qwen-Image-Edit
 ```
+
+Set `IMAGE_INPAINT_MODEL` only to a model on your provider that natively accepts
+both `image` and `mask`. When it is empty, masked turns use reference editing
+followed by local compositing.
+
+For AI/ML API FLUX.1 Fill:
+
+```bash
+AIMLAPI_API_KEY=your_aimlapi_key
+AIMLAPI_BASE_URL=https://api.aimlapi.com/v1
+IMAGE_INPAINT_PROVIDER=aimlapi
+IMAGE_INPAINT_MODEL=blackforestlabs/flux-fill
+```
+
+SiliconFlow continues to serve chat, vision, generation, and reference editing.
+Only native masked inpainting is sent to AI/ML API. The generated SAM2 mask is
+converted to a strict black-white PNG before it is submitted to FLUX.1 Fill.
+
+Optional local SAM2 refinement:
+
+```bash
+SEGMENTATION_BACKEND=sam2
+SAM2_CHECKPOINT=/absolute/path/to/sam2_checkpoint.pt
+SAM2_MODEL_CONFIG=configs/sam2.1/your_model.yaml
+SAM2_DEVICE=mps
+```
+
+The project now has a local `.venv-sam2` environment with SAM2.1 Hiera-Tiny
+enabled on Apple Silicon through MPS. The checkpoint is intentionally ignored
+by Git. If that environment is unavailable, the mask planner records and uses
+the VLM bounding-box fallback.
 
 ## Run
 
@@ -50,7 +85,34 @@ For each turn, artifacts are saved under:
 outputs/runs/<run_id>/turn_XX/
 ```
 
-Each turn directory contains `memory.json`, `prompt.txt`, `checklist.json`, `evaluation.json`, `delta.json`, `api_responses.json`, `turn_log.json`, and `image.png`.
+Each turn directory also contains `task_plan.json`, `agent_events.json`,
+task-level masks, the union `mask.png`, and refinement candidates when those
+stages are used.
+
+## Editing Architecture
+
+Visual entities keep a stable `entity_id`, active attributes, `attribute_slots`,
+slot history, provenance, preserve constraints, and deleted tombstones. A newer
+value in the same slot supersedes the old value, removes stale positive
+constraints, and creates a negative residual constraint for evaluation.
+
+Each task in the edit DAG owns a separate mask:
+
+- attribute/remove/move: VLM target box, optionally refined to a SAM2 silhouette;
+- add object: position-prior mask;
+- background/style: inverse of protected subject masks.
+
+The task masks are persisted separately and unioned into the final edit mask.
+Native inpainting receives `source image + union mask + instruction + negative
+prompt`. If no native model is configured, the system uses reference image
+editing and local compositing. If no editor is available, it records an explicit
+full-generation fallback.
+
+Superseded attributes create critical `old_attribute_residual` checks. In
+interactive mode only these high-risk replacement turns are evaluated
+synchronously and retried with the same union mask; ordinary generation remains
+unblocked. Set `RESIDUAL_AUTO_RETRY=false` to keep all interactive evaluation in
+the background.
 
 The app also writes searchable run metadata to:
 
@@ -148,8 +210,10 @@ python3 -m unittest discover -s tests
 
 ## Current Stage Boundaries
 
-- No image editing or inpainting.
-- No repair/retry loop.
-- No baselines or benchmark experiments.
-- No human evaluation table.
-- API errors are surfaced in Streamlit, and completed turn logs are kept.
+- SAM2.1 Hiera-Tiny is installed and enabled locally through MPS; another
+  machine still needs to install its runtime and checkpoint separately.
+- Native inpainting is implemented through a provider-neutral request boundary
+  and remains inactive until `IMAGE_INPAINT_MODEL` names a compatible model.
+- VLM residual detection and automatic edit retry run for all benchmark turns
+  and for high-risk superseded-attribute edits in interactive mode.
+- No human evaluation table is included yet.

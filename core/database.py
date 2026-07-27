@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DB_PATH = ROOT / "outputs" / "mem2image.sqlite3"
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def connect(db_path: Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
@@ -96,6 +96,65 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (run_id, turn_index, stage)
             );
+
+            CREATE TABLE IF NOT EXISTS tasks (
+                run_id TEXT NOT NULL,
+                turn_index INTEGER NOT NULL,
+                task_id TEXT NOT NULL,
+                operation TEXT NOT NULL,
+                target TEXT NOT NULL DEFAULT '',
+                affected_region TEXT NOT NULL DEFAULT '',
+                requires_mask INTEGER NOT NULL DEFAULT 0,
+                depends_on_json TEXT NOT NULL DEFAULT '[]',
+                payload_json TEXT NOT NULL DEFAULT '{}',
+                PRIMARY KEY (run_id, turn_index, task_id),
+                FOREIGN KEY (run_id, turn_index) REFERENCES turns(run_id, turn_index) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS agent_events (
+                run_id TEXT NOT NULL,
+                turn_index INTEGER NOT NULL,
+                event_index INTEGER NOT NULL,
+                agent TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                payload_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (run_id, turn_index, event_index),
+                FOREIGN KEY (run_id, turn_index) REFERENCES turns(run_id, turn_index) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS image_artifacts (
+                run_id TEXT NOT NULL,
+                turn_index INTEGER NOT NULL,
+                artifact_type TEXT NOT NULL,
+                path TEXT NOT NULL DEFAULT '',
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                PRIMARY KEY (run_id, turn_index, artifact_type),
+                FOREIGN KEY (run_id, turn_index) REFERENCES turns(run_id, turn_index) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS refinement_attempts (
+                run_id TEXT NOT NULL,
+                turn_index INTEGER NOT NULL,
+                attempt_index INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                failure_reason TEXT NOT NULL DEFAULT '',
+                instruction TEXT NOT NULL DEFAULT '',
+                score REAL,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                PRIMARY KEY (run_id, turn_index, attempt_index),
+                FOREIGN KEY (run_id, turn_index) REFERENCES turns(run_id, turn_index) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS evaluation_dimensions (
+                run_id TEXT NOT NULL,
+                turn_index INTEGER NOT NULL,
+                dimension TEXT NOT NULL,
+                score REAL,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                PRIMARY KEY (run_id, turn_index, dimension),
+                FOREIGN KEY (run_id, turn_index) REFERENCES turns(run_id, turn_index) ON DELETE CASCADE
+            );
             """
         )
         conn.execute(
@@ -154,6 +213,11 @@ def save_turn(
     method: str = "structured-memory",
     case_id: Optional[str] = None,
     metadata: Optional[Dict[str, Any]] = None,
+    task_plan: Optional[List[Dict[str, Any]]] = None,
+    agent_events: Optional[List[Dict[str, Any]]] = None,
+    image_artifacts: Optional[List[Dict[str, Any]]] = None,
+    refinement_attempts: Optional[List[Dict[str, Any]]] = None,
+    evaluation_dimensions: Optional[Dict[str, Any]] = None,
 ) -> None:
     upsert_run(
         run_id=run_id,
@@ -224,6 +288,11 @@ def save_turn(
             """,
             _checklist_rows(run_id, turn_index, checklist, evaluation),
         )
+        _replace_task_data(conn, run_id, turn_index, task_plan or [])
+        _replace_agent_events(conn, run_id, turn_index, agent_events or [])
+        _replace_image_artifacts(conn, run_id, turn_index, image_artifacts or [])
+        _replace_refinement_attempts(conn, run_id, turn_index, refinement_attempts or [])
+        _replace_evaluation_dimensions(conn, run_id, turn_index, evaluation_dimensions or {})
 
 
 def save_error(
@@ -244,6 +313,54 @@ def save_error(
                 message = excluded.message
             """,
             (run_id, turn_index, stage, type(error).__name__, str(error)),
+        )
+
+
+def update_turn_evaluation(
+    run_id: str,
+    turn_index: int,
+    checklist: List[Dict[str, Any]],
+    evaluation: Dict[str, Any],
+    db_path: Path = DEFAULT_DB_PATH,
+) -> None:
+    """Replace a pending asynchronous evaluation without rewriting the turn."""
+    init_db(db_path)
+    failed_items = evaluation.get("failed_items", [])
+    if not isinstance(failed_items, list):
+        failed_items = []
+    with connect(db_path) as conn:
+        conn.execute(
+            """
+            UPDATE turns
+            SET checklist_score = ?, failed_item_count = ?, evaluation_json = ?, checklist_json = ?
+            WHERE run_id = ? AND turn_index = ?
+            """,
+            (
+                _optional_float(evaluation.get("checklist_score")),
+                len(failed_items),
+                json_dumps(evaluation),
+                json_dumps(checklist),
+                run_id,
+                turn_index,
+            ),
+        )
+        conn.execute("DELETE FROM checklist_items WHERE run_id = ? AND turn_index = ?", (run_id, turn_index))
+        conn.executemany(
+            """
+            INSERT INTO checklist_items(
+                run_id, turn_index, item_id, question, target, item_type,
+                source, critical, drift_type, answer, passed, confidence, reason
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            _checklist_rows(run_id, turn_index, checklist, evaluation),
+        )
+        conn.execute(
+            """
+            INSERT INTO evaluation_dimensions(run_id, turn_index, dimension, score, metadata_json)
+            VALUES (?, ?, 'checklist_score', ?, '{}')
+            ON CONFLICT(run_id, turn_index, dimension) DO UPDATE SET score = excluded.score, metadata_json = excluded.metadata_json
+            """,
+            (run_id, turn_index, _optional_float(evaluation.get("checklist_score"))),
         )
 
 
@@ -337,6 +454,51 @@ def list_turns(run_id: str, db_path: Path = DEFAULT_DB_PATH) -> List[Dict[str, A
     return [_decode_turn(row) for row in rows]
 
 
+def list_execution_traces(
+    db_path: Path = DEFAULT_DB_PATH,
+    benchmark_run_id: str = "",
+) -> List[Dict[str, Any]]:
+    """Return planned edit operations with enough context for the admin UI."""
+    init_db(db_path)
+    where = ""
+    params: List[Any] = []
+    if benchmark_run_id:
+        where = "WHERE runs.metadata_json LIKE ?"
+        params.append(f'%"benchmark_run_id": "{benchmark_run_id}"%')
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            f"""
+            SELECT runs.run_id, runs.case_id, runs.method, tasks.turn_index,
+                   tasks.task_id, tasks.operation, tasks.target,
+                   tasks.affected_region, tasks.requires_mask,
+                   tasks.depends_on_json, tasks.payload_json,
+                   (SELECT path FROM image_artifacts artifacts
+                    WHERE artifacts.run_id = tasks.run_id AND artifacts.turn_index = tasks.turn_index
+                      AND artifacts.artifact_type = 'previous_image') AS previous_image_path,
+                   (SELECT path FROM image_artifacts artifacts
+                    WHERE artifacts.run_id = tasks.run_id AND artifacts.turn_index = tasks.turn_index
+                      AND artifacts.artifact_type = 'mask') AS mask_path,
+                   (SELECT path FROM image_artifacts artifacts
+                    WHERE artifacts.run_id = tasks.run_id AND artifacts.turn_index = tasks.turn_index
+                      AND artifacts.artifact_type = 'final_image') AS final_image_path,
+                   (SELECT COUNT(*) FROM agent_events events
+                    WHERE events.run_id = tasks.run_id AND events.turn_index = tasks.turn_index) AS event_count
+            FROM tasks
+            JOIN runs ON runs.run_id = tasks.run_id
+            {where}
+            ORDER BY runs.created_at DESC, tasks.turn_index, tasks.task_id
+            """,
+            params,
+        ).fetchall()
+    result = []
+    for row in rows:
+        item = _row_to_dict(row)
+        item["depends_on"] = json.loads(item.pop("depends_on_json"))
+        item["payload"] = json.loads(item.pop("payload_json"))
+        result.append(item)
+    return result
+
+
 def _checklist_rows(
     run_id: str,
     turn_index: int,
@@ -368,6 +530,144 @@ def _checklist_rows(
             int(passed) if isinstance(passed, bool) else None,
             _optional_float(evaluated.get("confidence")),
             str(evaluated.get("reason", "")),
+        )
+
+
+def _replace_task_data(conn: sqlite3.Connection, run_id: str, turn_index: int, tasks: Iterable[Dict[str, Any]]) -> None:
+    conn.execute("DELETE FROM tasks WHERE run_id = ? AND turn_index = ?", (run_id, turn_index))
+    rows = []
+    for task in tasks:
+        if not isinstance(task, dict) or not task.get("task_id"):
+            continue
+        rows.append(
+            (
+                run_id,
+                turn_index,
+                str(task["task_id"]),
+                str(task.get("operation", "")),
+                str(task.get("target", "")),
+                str(task.get("affected_region", "")),
+                1 if bool(task.get("requires_mask", False)) else 0,
+                json_dumps(task.get("depends_on", [])),
+                json_dumps(task),
+            )
+        )
+    if rows:
+        conn.executemany(
+            """
+            INSERT INTO tasks(
+                run_id, turn_index, task_id, operation, target, affected_region,
+                requires_mask, depends_on_json, payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            rows,
+        )
+
+
+def _replace_agent_events(conn: sqlite3.Connection, run_id: str, turn_index: int, events: Iterable[Dict[str, Any]]) -> None:
+    conn.execute("DELETE FROM agent_events WHERE run_id = ? AND turn_index = ?", (run_id, turn_index))
+    rows = []
+    for index, event in enumerate(events, 1):
+        if not isinstance(event, dict):
+            continue
+        rows.append(
+            (
+                run_id,
+                turn_index,
+                index,
+                str(event.get("agent", "")),
+                str(event.get("event_type", "")),
+                json_dumps(event.get("payload", {})),
+                str(event.get("created_at", "")) or "CURRENT_TIMESTAMP",
+            )
+        )
+    if rows:
+        conn.executemany(
+            """
+            INSERT INTO agent_events(run_id, turn_index, event_index, agent, event_type, payload_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            rows,
+        )
+
+
+def _replace_image_artifacts(conn: sqlite3.Connection, run_id: str, turn_index: int, artifacts: Iterable[Dict[str, Any]]) -> None:
+    conn.execute("DELETE FROM image_artifacts WHERE run_id = ? AND turn_index = ?", (run_id, turn_index))
+    rows = []
+    for artifact in artifacts:
+        if not isinstance(artifact, dict) or not artifact.get("artifact_type"):
+            continue
+        rows.append(
+            (
+                run_id,
+                turn_index,
+                str(artifact["artifact_type"]),
+                _relpath(Path(str(artifact.get("path", "")))) if artifact.get("path") else "",
+                json_dumps(artifact.get("metadata", {})),
+            )
+        )
+    if rows:
+        conn.executemany(
+            "INSERT INTO image_artifacts(run_id, turn_index, artifact_type, path, metadata_json) VALUES (?, ?, ?, ?, ?)",
+            rows,
+        )
+
+
+def _replace_refinement_attempts(
+    conn: sqlite3.Connection,
+    run_id: str,
+    turn_index: int,
+    attempts: Iterable[Dict[str, Any]],
+) -> None:
+    conn.execute("DELETE FROM refinement_attempts WHERE run_id = ? AND turn_index = ?", (run_id, turn_index))
+    rows = []
+    for index, attempt in enumerate(attempts):
+        if not isinstance(attempt, dict):
+            continue
+        rows.append(
+            (
+                run_id,
+                turn_index,
+                int(attempt.get("attempt_index", index)),
+                str(attempt.get("status", "")),
+                str(attempt.get("failure_reason", "")),
+                str(attempt.get("instruction", "")),
+                _optional_float(attempt.get("score")),
+                json_dumps(attempt.get("metadata", {})),
+            )
+        )
+    if rows:
+        conn.executemany(
+            """
+            INSERT INTO refinement_attempts(
+                run_id, turn_index, attempt_index, status, failure_reason,
+                instruction, score, metadata_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            rows,
+        )
+
+
+def _replace_evaluation_dimensions(
+    conn: sqlite3.Connection,
+    run_id: str,
+    turn_index: int,
+    dimensions: Dict[str, Any],
+) -> None:
+    conn.execute("DELETE FROM evaluation_dimensions WHERE run_id = ? AND turn_index = ?", (run_id, turn_index))
+    rows = []
+    for name, raw_value in dimensions.items():
+        if isinstance(raw_value, dict):
+            score = _optional_float(raw_value.get("score"))
+            metadata = {key: value for key, value in raw_value.items() if key != "score"}
+        else:
+            score = _optional_float(raw_value)
+            metadata = {}
+        rows.append((run_id, turn_index, str(name), score, json_dumps(metadata)))
+    if rows:
+        conn.executemany(
+            "INSERT INTO evaluation_dimensions(run_id, turn_index, dimension, score, metadata_json) VALUES (?, ?, ?, ?, ?)",
+            rows,
         )
 
 

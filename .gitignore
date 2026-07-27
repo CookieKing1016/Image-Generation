@@ -1,5 +1,6 @@
 .env
 .venv/
+.venv-sam2/
 __pycache__/
 .pycache-check/
 *.pyc
@@ -11,3 +12,4 @@ outputs/runs/*
 outputs/benchmarks/*
 outputs/*.sqlite3
 outputs/*.sqlite3-*
+models/sam2/*.pt

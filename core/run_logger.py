@@ -50,6 +50,11 @@ class RunLogger:
         evaluation: Any,
         image_path: Path,
         api_summary: Dict[str, Any],
+        task_plan: Any = None,
+        agent_events: Any = None,
+        image_artifacts: Any = None,
+        refinement_attempts: Any = None,
+        evaluation_dimensions: Any = None,
     ) -> None:
         directory = self.turn_dir(turn_index)
         self.save_json(directory / "delta.json", delta)
@@ -61,6 +66,8 @@ class RunLogger:
         self.save_json(directory / "checklist.json", checklist)
         self.save_json(directory / "evaluation.json", evaluation)
         self.save_json(directory / "api_responses.json", api_summary)
+        self.save_json(directory / "task_plan.json", task_plan or [])
+        self.save_json(directory / "agent_events.json", agent_events or [])
         self.save_json(
             directory / "turn_log.json",
             {
@@ -86,6 +93,11 @@ class RunLogger:
             evaluation=evaluation,
             image_path=image_path,
             api_summary=api_summary,
+            task_plan=task_plan,
+            agent_events=agent_events,
+            image_artifacts=image_artifacts,
+            refinement_attempts=refinement_attempts,
+            evaluation_dimensions=evaluation_dimensions,
         )
 
     def save_error(self, turn_index: int, stage: str, error: Exception) -> None:
@@ -99,6 +111,10 @@ class RunLogger:
             },
         )
         database.save_error(self.run_id, turn_index, stage, error)
+
+    def save_async_evaluation(self, turn_index: int, checklist: Any, evaluation: Any) -> None:
+        self.save_json(self.turn_dir(turn_index) / "evaluation.json", evaluation)
+        database.update_turn_evaluation(self.run_id, turn_index, checklist, evaluation)
 
 
 def summarize_api_response(response: Dict[str, Any]) -> Dict[str, Any]:

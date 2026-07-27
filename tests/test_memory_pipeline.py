@@ -147,6 +147,45 @@ class MemoryPipelineTest(unittest.TestCase):
         self.assertNotIn("wearing a red scarf", attrs)
         self.assertIn("No red scarf should be visible.", memory["negative_constraints"])
 
+        states = memory["main_subjects"][0]["attribute_states"]
+        self.assertEqual(states["wearing a blue scarf"]["status"], "active")
+        self.assertEqual(states["wearing a red scarf"]["status"], "superseded")
+
+    def test_chinese_ribbon_color_replacement_supersedes_old_slot_and_constraint(self):
+        updater = MemoryUpdater()
+        memory = updater.update(
+            empty_memory(),
+            {
+                "add": {
+                    "main_subjects": [{"name": "护肤精华瓶", "attributes": ["瓶颈处系有黑色缎带"]}],
+                    "constraints": ["黑色缎带需清晰可见且质感真实"],
+                }
+            },
+            "生成带黑色缎带的精华瓶。",
+        )
+        memory = updater.update(
+            memory,
+            {"update": {"main_subjects": [{"name": "护肤精华瓶", "attributes": ["瓶颈处系有深酒红色缎带"]}]}},
+            "只把黑色缎带改成深酒红色。",
+        )
+
+        subject = memory["main_subjects"][0]
+        self.assertNotIn("瓶颈处系有黑色缎带", subject["attributes"])
+        self.assertIn("瓶颈处系有深酒红色缎带", subject["attributes"])
+        self.assertEqual(subject["attribute_states"]["瓶颈处系有黑色缎带"]["status"], "superseded")
+        ribbon_slot = subject["attribute_slots"]["part:ribbon:color"]
+        self.assertEqual(ribbon_slot["value"], ["deep_burgundy"])
+        self.assertEqual(ribbon_slot["history"][0]["value"], ["black"])
+        self.assertNotIn("黑色缎带", " ".join(memory["constraints"]))
+        self.assertIn("瓶颈处系有黑色缎带", " ".join(memory["negative_constraints"]))
+        residual = [
+            item
+            for item in ChecklistGenerator().generate(memory)
+            if item.get("drift_type") == "old_attribute_residual"
+        ]
+        self.assertEqual(len(residual), 1)
+        self.assertTrue(residual[0]["critical"])
+
     def test_removed_object_cleans_related_constraints_and_becomes_negative(self):
         updater = MemoryUpdater()
         memory = empty_memory()
@@ -176,6 +215,9 @@ class MemoryPipelineTest(unittest.TestCase):
         self.assertIn("No credit card should be visible.", memory["negative_constraints"])
         self.assertIn("No card-like rectangle should protrude from the wallet.", memory["negative_constraints"])
         self.assertIn("clean closed edges", " ".join(memory["constraints"]).lower())
+        self.assertEqual(len(memory["deleted_entities"]), 1)
+        self.assertEqual(memory["deleted_entities"][0]["status"], "deleted")
+        self.assertEqual(memory["deleted_entities"][0]["entity_id"], "card_1")
 
     def test_no_readable_text_removes_visible_writing_constraint(self):
         updater = MemoryUpdater()

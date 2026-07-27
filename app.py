@@ -81,11 +81,37 @@ def _settings_panel() -> Settings:
         with first:
             api_key = st.text_input("SiliconFlow API Key", value=env_settings.api_key, type="password")
             base_url = st.text_input("Base URL", value=env_settings.base_url)
+            aimlapi_key = st.text_input(
+                "AI/ML API Key",
+                value=env_settings.aimlapi_key,
+                type="password",
+            )
         with second:
             llm_model = st.text_input("LLM Model", value=env_settings.llm_model)
             vlm_model = st.text_input("VLM Model", value=env_settings.vlm_model)
+            evaluation_mode = st.selectbox(
+                "Evaluation Mode",
+                options=["interactive", "off", "benchmark"],
+                index=["interactive", "off", "benchmark"].index(env_settings.evaluation_mode)
+                if env_settings.evaluation_mode in {"interactive", "off", "benchmark"}
+                else 0,
+            )
         with third:
             image_model = st.text_input("Image Model", value=env_settings.image_model)
+            image_fallback_models = st.text_input("Image Fallback Models", value=", ".join(env_settings.image_fallback_models))
+            image_edit_model = st.text_input("Image Edit Model", value=env_settings.image_edit_model)
+            image_inpaint_provider = st.selectbox(
+                "Inpainting Provider",
+                options=["aimlapi", "siliconflow"],
+                index=0
+                if env_settings.image_inpaint_provider == "aimlapi"
+                else 1,
+            )
+            image_inpaint_model = st.text_input(
+                "Inpainting Model",
+                value=env_settings.image_inpaint_model
+                or "blackforestlabs/flux-fill",
+            )
             image_size = st.text_input("Image Size", value=env_settings.image_size)
         st.caption(f"当前运行：{st.session_state.run_id}")
         if st.button("重置当前项目", key="reset_settings"):
@@ -94,13 +120,31 @@ def _settings_panel() -> Settings:
     return Settings(
         api_key=api_key,
         base_url=base_url,
+        aimlapi_key=aimlapi_key,
+        aimlapi_base_url=env_settings.aimlapi_base_url,
         llm_model=llm_model,
         vlm_model=vlm_model,
         image_model=image_model,
+        image_fallback_models=[item.strip() for item in image_fallback_models.split(",") if item.strip()],
+        image_edit_model=image_edit_model,
+        image_inpaint_model=image_inpaint_model,
+        image_inpaint_provider=image_inpaint_provider,
+        segmentation_backend=env_settings.segmentation_backend,
+        sam2_checkpoint=env_settings.sam2_checkpoint,
+        sam2_model_config=env_settings.sam2_model_config,
+        sam2_device=env_settings.sam2_device,
+        sam2_mask_dilation_px=env_settings.sam2_mask_dilation_px,
+        sam2_mask_feather_px=env_settings.sam2_mask_feather_px,
         image_size=image_size,
         num_inference_steps=env_settings.num_inference_steps,
         guidance_scale=env_settings.guidance_scale,
         timeout_seconds=env_settings.timeout_seconds,
+        vlm_max_retries=env_settings.vlm_max_retries,
+        vlm_retry_delay_seconds=env_settings.vlm_retry_delay_seconds,
+        residual_auto_retry=env_settings.residual_auto_retry,
+        refinement_max_attempts=env_settings.refinement_max_attempts,
+        refinement_score_threshold=env_settings.refinement_score_threshold,
+        evaluation_mode=evaluation_mode,
     )
 
 
@@ -246,7 +290,42 @@ def _render_chat_turn(result: Dict[str, Any]) -> None:
         image_html = f'<div class="generated-card" style="aspect-ratio:{aspect_ratio}"><img src="{image_src}" alt="生成结果" /></div>'
     else:
         image_html = f'<div class="generated-card" style="aspect-ratio:{aspect_ratio}">生成结果将在这里显示</div>'
-    st.markdown('<div class="chat-assistant"><div class="assistant-name">◫　Mem2Image</div><div class="assistant-copy">已完成本轮调整，并保留此前的视觉意图与主体设定。</div>' + image_html + '</div>', unsafe_allow_html=True)
+    execution = result.get("execution", {})
+    mode = str(execution.get("mode", "generate"))
+    mode_labels = {
+        "generate": "首轮生成",
+        "masked_edit": "Mask 局部编辑",
+        "reference_edit": "参考图编辑",
+        "fallback_generate": "编辑回退为整图生成",
+        "blocked_edit": "编辑已阻止，保留上一轮图片",
+    }
+    backend = str(execution.get("editor_backend", ""))
+    backend_labels = {
+        "native_inpainting": "原生 Inpainting",
+        "aimlapi_flux_fill": "AI/ML API · FLUX.1 Fill 原生 Inpainting",
+        "reference_edit_local_composite": "参考图编辑 + 本地 Mask 合成",
+        "reference_edit": "参考图编辑",
+    }
+    comparison = execution.get("image_comparison", {})
+    similarity = comparison.get("global_pixel_similarity")
+    locality = comparison.get("edit_locality")
+    metric = f" · 全局一致性 {float(similarity):.3f}" if similarity is not None else ""
+    if backend:
+        metric = f" · {backend_labels.get(backend, backend)}" + metric
+    if locality is not None:
+        metric += f" · 局部性 {float(locality):.3f}"
+    evaluation_status = str(result.get("evaluation", {}).get("status", ""))
+    evaluation_labels = {"skipped": "未评测", "pending": "后台评测中", "completed": "评测完成"}
+    evaluation_text = evaluation_labels.get(evaluation_status, "")
+    if evaluation_text:
+        metric += f" · {evaluation_text}"
+    st.markdown(
+        '<div class="chat-assistant"><div class="assistant-name">◫　Mem2Image</div>'
+        '<div class="assistant-copy">已完成本轮调整，并保留此前的视觉意图与主体设定。</div>'
+        + image_html
+        + f'<div class="result-caption">执行方式：{html.escape(mode_labels.get(mode, mode))}{metric}</div></div>',
+        unsafe_allow_html=True,
+    )
 
 
 def _render_dashboard() -> None:
@@ -264,7 +343,7 @@ def _render_dashboard() -> None:
     benchmark_run_id = "" if selected == "全部数据" else selected
 
     totals = dashboard_totals(benchmark_run_id=benchmark_run_id)
-    metric_cols = st.columns(7)
+    metric_cols = st.columns(9)
     metric_cols[0].metric("Methods", totals["method_count"])
     metric_cols[1].metric("Cases", totals["case_count"])
     metric_cols[2].metric("Turns", totals["turn_count"])
@@ -272,14 +351,17 @@ def _render_dashboard() -> None:
     metric_cols[4].metric("History", _fmt_metric(totals["history_retention_rate"]))
     metric_cols[5].metric("Current", _fmt_metric(totals["current_turn_success_rate"]))
     metric_cols[6].metric("Failed", totals["failed_item_count"])
+    metric_cols[7].metric("Conflict", _fmt_metric(totals["conflict_resolution_rate"]))
+    metric_cols[8].metric("Unintended", _fmt_metric(totals["unintended_change_rate"]))
 
     method_rows = summarize_methods(benchmark_run_id=benchmark_run_id)
     drift_rows = summarize_drift_types(benchmark_run_id=benchmark_run_id)
     badcase_matrix_rows = list_turn_badcase_matrix(benchmark_run_id=benchmark_run_id)
     turn_rows = list_turn_metrics(benchmark_run_id=benchmark_run_id)
     failed_rows = list_failed_items(benchmark_run_id=benchmark_run_id)
+    execution_rows = database.list_execution_traces(benchmark_run_id=benchmark_run_id)
 
-    tabs = st.tabs(["逐轮 Badcase", "Method 对比", "Drift 类型", "Turn 明细", "Bad Cases", "原始 Runs"])
+    tabs = st.tabs(["逐轮 Badcase", "Method 对比", "Drift 类型", "Turn 明细", "执行轨迹", "Bad Cases", "原始 Runs"])
     with tabs[0]:
         st.caption("每一轮一行。status=BAD 表示该轮至少一个 checklist item 未通过；failed_items 显示失败项、失败类型和来源。")
         filtered_matrix = _filter_badcase_matrix(badcase_matrix_rows)
@@ -299,6 +381,8 @@ def _render_dashboard() -> None:
                             "critical_failed_count": row.get("critical_failed_count"),
                             "history_retention": row.get("history_retention"),
                             "current_success": row.get("current_success"),
+                            "conflict_resolution": row.get("conflict_resolution"),
+                            "unintended_change_rate": row.get("unintended_change_rate"),
                             "failed_items": row.get("failed_items"),
                             "failed_reasons": row.get("failed_reasons"),
                             "image_path": row.get("image_path"),
@@ -314,6 +398,32 @@ def _render_dashboard() -> None:
         st.caption("每一轮的输入、分数、失败数量和图像路径。")
         _dataframe_or_empty(turn_rows, "暂无 turn 数据。")
     with tabs[4]:
+        st.caption("Planner 输出的编辑任务、目标区域和执行依赖。fallback_generate 表示当前未配置分割/Inpainting 后端。")
+        _dataframe_or_empty(execution_rows, "暂无编辑任务数据。")
+        for row in execution_rows[:12]:
+            if not row.get("mask_path"):
+                continue
+            with st.expander(
+                f"{row.get('case_id') or row.get('run_id')} / Turn {row.get('turn_index')} / {row.get('operation')}"
+            ):
+                images = []
+                labels = []
+                for label, key in (("来源图", "previous_image_path"), ("Mask", "mask_path"), ("结果图", "final_image_path")):
+                    raw_path = str(row.get(key) or "")
+                    path = Path(raw_path)
+                    if raw_path and not path.is_absolute():
+                        path = ROOT / path
+                    if _is_displayable_image(path):
+                        images.append(path)
+                        labels.append(label)
+                if images:
+                    cols = st.columns(len(images))
+                    for col, image, label in zip(cols, images, labels):
+                        with col:
+                            st.image(str(image), caption=label, use_container_width=True)
+                else:
+                    st.caption("图像文件暂不可用。")
+    with tabs[5]:
         st.caption("所有未通过 checklist item，可用于 bad case 分析。")
         _dataframe_or_empty(failed_rows, "当前筛选下没有失败项。")
         if failed_rows:
@@ -322,7 +432,7 @@ def _render_dashboard() -> None:
             st.write(f"**{first.get('case_id') or '-'} / {first.get('method') or '-'} / Turn {first.get('turn_index')}**")
             st.write(first.get("question", ""))
             st.json({k: first.get(k) for k in ("target", "answer", "drift_type", "source", "critical", "reason")})
-    with tabs[5]:
+    with tabs[6]:
         st.caption(f"SQLite database: `{database.DEFAULT_DB_PATH}`")
         _dataframe_or_empty(database.list_runs(), "暂无 run 数据。")
 
@@ -444,7 +554,13 @@ def _run_turn(settings: Settings, instruction: str) -> None:
     orchestrator = Mem2ImageOrchestrator(settings=settings, run_id=st.session_state.run_id)
     with st.spinner(f"正在生成第 {turn_index} 轮画面，并检查记忆一致性..."):
         try:
-            result = orchestrator.run_turn(instruction=instruction, memory=st.session_state.memory, turn_index=turn_index)
+            previous_image = Path(st.session_state.results[-1]["image_path"]) if st.session_state.results else None
+            result = orchestrator.run_turn(
+                instruction=instruction,
+                memory=st.session_state.memory,
+                turn_index=turn_index,
+                previous_image=previous_image,
+            )
         except Exception as exc:
             st.session_state.last_error = str(exc)
             return
@@ -509,6 +625,8 @@ def _result_to_state(result: TurnResult) -> Dict[str, Any]:
         "evaluation": result.evaluation,
         "image_path": str(result.image_path),
         "run_dir": str(result.run_dir),
+        "task_plan": result.task_plan.to_list(),
+        "execution": result.execution,
     }
 
 

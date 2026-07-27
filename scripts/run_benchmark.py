@@ -334,7 +334,12 @@ def _run_generation_and_evaluation_with_retries(
     last_error: Exception | None = None
     for attempt in range(max_retries + 1):
         try:
-            image_response = client.generate_image(generation_prompt)
+            image_response, selected_model, failed_model_attempts = client.generate_image_with_fallback(generation_prompt)
+            image_response = {
+                **image_response,
+                "_mem2image_selected_model": selected_model,
+                "_mem2image_failed_model_attempts": failed_model_attempts,
+            }
             image_url = first_image_url(image_response)
             client.download_file(image_url, image_path)
             evaluation = evaluator.evaluate(
@@ -411,6 +416,9 @@ def database_summary(response: Dict[str, Any]) -> Dict[str, Any]:
         summary["images"] = response["images"]
     if "choices" in response:
         summary["choices_count"] = len(response.get("choices", []))
+    for key in ("_mem2image_selected_model", "_mem2image_failed_model_attempts"):
+        if key in response:
+            summary[key.removeprefix("_mem2image_")] = response[key]
     return summary
 
 

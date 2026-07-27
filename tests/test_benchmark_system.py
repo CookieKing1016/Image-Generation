@@ -73,12 +73,22 @@ class BenchmarkSystemTest(unittest.TestCase):
                         "critical": False,
                         "drift_type": "current_turn_failure",
                     },
+                    {
+                        "id": "conflict_item",
+                        "question": "Old style removed?",
+                        "target": "yes",
+                        "type": "negative_constraint",
+                        "source": "current",
+                        "critical": True,
+                        "drift_type": "style_conflict",
+                    },
                 ],
                 evaluation={
                     "items": [
                         {"id": "history_item", "answer": "yes", "passed": True},
                         {"id": "current_item", "answer": "yes", "passed": True},
                         {"id": "current_item_2", "answer": "no", "passed": False},
+                        {"id": "conflict_item", "answer": "yes", "passed": True},
                     ],
                     "checklist_score": 0.6667,
                     "failed_items": ["Current item failed"],
@@ -98,6 +108,8 @@ class BenchmarkSystemTest(unittest.TestCase):
             self.assertEqual(summary[0]["history_retention_rate"], 1.0)
             self.assertEqual(summary[0]["current_turn_success_rate"], 0.0)
             self.assertEqual(summary[0]["drift_count"], 1)
+            self.assertEqual(summary[0]["conflict_resolution_rate"], 1.0)
+            self.assertEqual(summary[0]["unintended_change_rate"], 0.0)
 
 
 if __name__ == "__main__":

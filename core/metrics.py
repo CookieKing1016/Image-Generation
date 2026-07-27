@@ -81,6 +81,10 @@ def summarize_methods(
                     selected_runs.method,
                     AVG(CASE WHEN checklist_items.critical = 1 THEN checklist_items.passed END)
                         AS critical_success_rate,
+                    AVG(CASE WHEN checklist_items.drift_type LIKE '%conflict%'
+                        THEN checklist_items.passed END) AS conflict_resolution_rate,
+                    AVG(CASE WHEN checklist_items.item_type = 'negative_constraint'
+                        THEN 1.0 - checklist_items.passed END) AS unintended_change_rate,
                     SUM(CASE WHEN checklist_items.passed = 0 THEN 1 ELSE 0 END) AS drift_count
                 FROM selected_runs
                 LEFT JOIN checklist_items ON selected_runs.run_id = checklist_items.run_id
@@ -95,6 +99,8 @@ def summarize_methods(
                 row_metric_summary.history_retention_rate,
                 row_metric_summary.current_turn_success_rate,
                 item_summary.critical_success_rate,
+                item_summary.conflict_resolution_rate,
+                item_summary.unintended_change_rate,
                 COALESCE(item_summary.drift_count, 0) AS drift_count
             FROM turn_summary
             LEFT JOIN row_metric_summary ON turn_summary.method = row_metric_summary.method
@@ -254,6 +260,12 @@ def list_turn_badcase_matrix(
                         AS current_passed,
                     SUM(CASE WHEN checklist_items.passed = 0 AND checklist_items.critical = 1 THEN 1 ELSE 0 END)
                         AS critical_failed_count,
+                    SUM(CASE WHEN checklist_items.drift_type LIKE '%conflict%' THEN 1 ELSE 0 END) AS conflict_total,
+                    SUM(CASE WHEN checklist_items.drift_type LIKE '%conflict%' AND checklist_items.passed = 1 THEN 1 ELSE 0 END)
+                        AS conflict_passed,
+                    SUM(CASE WHEN checklist_items.item_type = 'negative_constraint' THEN 1 ELSE 0 END) AS negative_total,
+                    SUM(CASE WHEN checklist_items.item_type = 'negative_constraint' AND checklist_items.passed = 0 THEN 1 ELSE 0 END)
+                        AS unintended_change_count,
                     GROUP_CONCAT(
                         CASE
                             WHEN checklist_items.passed = 0 THEN
@@ -292,6 +304,14 @@ def list_turn_badcase_matrix(
                     WHEN item_rollup.current_passed = item_rollup.current_total THEN 1.0
                     ELSE 0.0
                 END AS current_success,
+                CASE
+                    WHEN COALESCE(item_rollup.conflict_total, 0) = 0 THEN NULL
+                    ELSE CAST(item_rollup.conflict_passed AS REAL) / item_rollup.conflict_total
+                END AS conflict_resolution,
+                CASE
+                    WHEN COALESCE(item_rollup.negative_total, 0) = 0 THEN NULL
+                    ELSE CAST(item_rollup.unintended_change_count AS REAL) / item_rollup.negative_total
+                END AS unintended_change_rate,
                 COALESCE(item_rollup.failed_items, '') AS failed_items,
                 COALESCE(item_rollup.failed_reasons, '') AS failed_reasons,
                 turns.instruction,
@@ -320,6 +340,8 @@ def dashboard_totals(
     avg_score = _mean(row.get("avg_checklist_score") for row in method_rows)
     history = _mean(row.get("history_retention_rate") for row in method_rows)
     current = _mean(row.get("current_turn_success_rate") for row in method_rows)
+    conflict = _mean(row.get("conflict_resolution_rate") for row in method_rows)
+    unintended = _mean(row.get("unintended_change_rate") for row in method_rows)
     return {
         "method_count": len(method_rows),
         "case_count": len(cases),
@@ -328,6 +350,8 @@ def dashboard_totals(
         "avg_checklist_score": round(avg_score, 4),
         "history_retention_rate": round(history, 4),
         "current_turn_success_rate": round(current, 4),
+        "conflict_resolution_rate": round(conflict, 4),
+        "unintended_change_rate": round(unintended, 4),
     }
 
 
